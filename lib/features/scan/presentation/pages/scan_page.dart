@@ -8,14 +8,15 @@ import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../diagnosis/domain/entities/diagnosis_result.dart';
 import '../../../diagnosis/domain/entities/crop_type.dart';
 import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
-import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart' show DiagnosisEvent;
 import '../../../location/presentation/bloc/location_bloc.dart';
 import '../../../location/domain/entities/extension_officer.dart';
 import '../../../location/domain/entities/agro_dealer.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
-import '../../../auth/presentation/bloc/auth_state.dart' show AuthState, AuthStatus;
+import '../../../auth/presentation/bloc/auth_state.dart'
+    show AuthState, AuthStatus;
 import '../../../alerts/presentation/bloc/alerts_bloc.dart';
 import '../../../alerts/domain/entities/alert.dart';
+import '../../../history/presentation/widgets/ai_assistant_tab.dart';
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -32,22 +33,20 @@ class _ScanPageState extends State<ScanPage> {
   @override
   Widget build(BuildContext context) {
     final settingsState = context.watch<SettingsBloc>().state;
-    final isChichewa = settingsState is SettingsLoaded 
-        ? settingsState.languageCode == 'ny' 
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
         : true;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(isChichewa ? 'Pima Zizolongo' : 'Scan Crop'),
-      ),
+      appBar: AppBar(title: Text(isChichewa ? 'Pima Zizolongo' : 'Scan Crop')),
       body: BlocListener<DiagnosisBloc, DiagnosisState>(
         listener: (context, state) {
           if (state is DiagnosisSuccess) {
             _showResultDialog(context, state, isChichewa);
           } else if (state is DiagnosisError) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.message)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(state.message)));
           }
         },
         child: Padding(
@@ -56,9 +55,7 @@ class _ScanPageState extends State<ScanPage> {
             children: [
               _buildCropSelector(isChichewa),
               const SizedBox(height: 16),
-              Expanded(
-                child: _buildScanArea(context, isChichewa),
-              ),
+              Expanded(child: _buildScanArea(context, isChichewa)),
               const SizedBox(height: 16),
               _buildActionButtons(context, isChichewa),
             ],
@@ -94,26 +91,31 @@ class _ScanPageState extends State<ScanPage> {
                     color: isSelected ? AppTheme.primaryGreen : Colors.white,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: isSelected ? AppTheme.primaryGreen : Colors.grey.shade300,
+                      color: isSelected
+                          ? AppTheme.primaryGreen
+                          : Colors.grey.shade300,
                       width: 2,
                     ),
-                    boxShadow: isSelected ? [
-                      BoxShadow(
-                        color: AppTheme.primaryGreen.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ] : null,
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: AppTheme.primaryGreen.withValues(
+                                alpha: 0.3,
+                              ),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
                   ),
                   child: Column(
                     children: [
-                      Text(
-                        crop.icon,
-                        style: const TextStyle(fontSize: 32),
-                      ),
+                      Text(crop.icon, style: const TextStyle(fontSize: 32)),
                       const SizedBox(height: 8),
                       Text(
-                        isChichewa ? crop.displayNameChichewa : crop.displayName,
+                        isChichewa
+                            ? crop.displayNameChichewa
+                            : crop.displayName,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -164,7 +166,7 @@ class _ScanPageState extends State<ScanPage> {
               ),
             );
           }
-          
+
           return Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -175,7 +177,7 @@ class _ScanPageState extends State<ScanPage> {
               ),
               const SizedBox(height: 16),
               Text(
-                isChichewa 
+                isChichewa
                     ? 'Tchani chithunzi cha ${_selectedCrop.displayNameChichewa.toLowerCase()}'
                     : 'Take a photo of your ${_selectedCrop.displayName.toLowerCase()}',
                 style: AppTextStyles.bodyLarge.copyWith(
@@ -185,7 +187,7 @@ class _ScanPageState extends State<ScanPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                isChichewa 
+                isChichewa
                     ? 'Chithunzi chiyambe pamenenso'
                     : 'The image should be clear and well-lit',
                 style: AppTextStyles.bodySmall,
@@ -270,31 +272,32 @@ class _ScanPageState extends State<ScanPage> {
         maxHeight: 1024,
         imageQuality: 85,
       );
-      
+
       if (image != null && mounted) {
         context.read<LocationBloc>().add(LocationGetCurrent());
-        
+
         context.read<DiagnosisBloc>().add(
-          DiagnosisAnalyzeRequested(
-            image.path,
-            cropType: _selectedCrop,
-          ),
+          DiagnosisAnalyzeRequested(image.path, cropType: _selectedCrop),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
       }
     }
   }
 
-  void _showResultDialog(BuildContext context, DiagnosisSuccess state, bool isChichewa) {
+  void _showResultDialog(
+    BuildContext context,
+    DiagnosisSuccess state,
+    bool isChichewa,
+  ) {
     final result = state.result;
     final locationState = context.read<LocationBloc>().state;
     final authState = context.read<AuthBloc>().state;
-    
+
     String locationText = '';
     String? district;
     if (locationState is LocationLoaded) {
@@ -310,7 +313,7 @@ class _ScanPageState extends State<ScanPage> {
     final bool isHighConfidence = result.confidence >= confidenceThreshold;
     ExtensionOfficer? nearestOfficer;
     AgroDealer? nearestDealer;
-    
+
     if (locationState is LocationLoaded) {
       nearestOfficer = locationState.nearestOfficer;
       nearestDealer = locationState.nearestDealer;
@@ -346,12 +349,16 @@ class _ScanPageState extends State<ScanPage> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  
+
                   // Confidence Badge
-                  _buildConfidenceBadge(result.confidence, isHighConfidence, isChichewa),
-                  
+                  _buildConfidenceBadge(
+                    result.confidence,
+                    isHighConfidence,
+                    isChichewa,
+                  ),
+
                   const SizedBox(height: 16),
-                  
+
                   // Crop and Diagnosis Name
                   Row(
                     children: [
@@ -365,13 +372,17 @@ class _ScanPageState extends State<ScanPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              isChichewa ? result.cropType.displayNameChichewa : result.cropType.displayName,
+                              isChichewa
+                                  ? result.cropType.displayNameChichewa
+                                  : result.cropType.displayName,
                               style: AppTextStyles.bodyMedium.copyWith(
                                 color: AppTheme.textMuted,
                               ),
                             ),
                             Text(
-                              isChichewa ? result.diagnosisNameChichewa : result.diagnosisName,
+                              isChichewa
+                                  ? result.diagnosisNameChichewa
+                                  : result.diagnosisName,
                               style: AppTextStyles.headingMedium,
                             ),
                           ],
@@ -379,19 +390,21 @@ class _ScanPageState extends State<ScanPage> {
                       ),
                     ],
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // Type chip
                   _buildInfoChip(
-                    isChichewa ? result.type.displayNameChichewa : result.type.displayName,
+                    isChichewa
+                        ? result.type.displayNameChichewa
+                        : result.type.displayName,
                     _getSeverityColor(result.severity),
                   ),
-                  
+
                   // HIGH CONFIDENCE: Show treatment info
                   if (isHighConfidence) ...[
                     const SizedBox(height: 20),
-                    
+
                     // Scientific Name
                     if (result.scientificName != null)
                       _buildDetailSection(
@@ -400,7 +413,7 @@ class _ScanPageState extends State<ScanPage> {
                         isChichewa,
                         Icons.science,
                       ),
-                    
+
                     // Causing Factors
                     if (result.causingFactors != null)
                       _buildDetailSection(
@@ -409,7 +422,7 @@ class _ScanPageState extends State<ScanPage> {
                         isChichewa,
                         Icons.warning_amber,
                       ),
-                    
+
                     // Treatment
                     if (result.treatment != null)
                       _buildDetailSection(
@@ -418,7 +431,7 @@ class _ScanPageState extends State<ScanPage> {
                         isChichewa,
                         Icons.healing,
                       ),
-                    
+
                     // Pesticide/Remedy
                     if (result.pesticideRemedy != null)
                       _buildDetailSection(
@@ -427,7 +440,7 @@ class _ScanPageState extends State<ScanPage> {
                         isChichewa,
                         Icons.medication,
                       ),
-                    
+
                     // Prevention
                     if (result.prevention != null)
                       _buildDetailSection(
@@ -436,7 +449,7 @@ class _ScanPageState extends State<ScanPage> {
                         isChichewa,
                         Icons.shield,
                       ),
-                    
+
                     // Agro-dealer Contact
                     if (nearestDealer != null) ...[
                       const SizedBox(height: 20),
@@ -451,26 +464,35 @@ class _ScanPageState extends State<ScanPage> {
                       ),
                       const SizedBox(height: 12),
                       _buildMessageActionButton(
-                        label: isChichewa ? 'Lowa Fono la Agro Dealer' : 'Contact Agro Dealer',
+                        label: isChichewa
+                            ? 'Lowa Fono la Agro Dealer'
+                            : 'Contact Agro Dealer',
                         icon: Icons.message,
                         color: AppTheme.primaryGreen,
-                        onTap: () => _contactAgroDealer(context, nearestDealer, isChichewa),
+                        onTap: () => _contactAgroDealer(
+                          context,
+                          nearestDealer,
+                          isChichewa,
+                        ),
                       ),
                     ],
-                    
+
                     // Report to Manager Button
                     const SizedBox(height: 12),
                     _buildMessageActionButton(
-                      label: isChichewa ? 'Report kwa Manager' : 'Report to Manager',
+                      label: isChichewa
+                          ? 'Report kwa Manager'
+                          : 'Report to Manager',
                       icon: Icons.report_problem,
                       color: AppTheme.warningAmber,
-                      onTap: () => _reportToManager(context, result, isChichewa),
+                      onTap: () =>
+                          _reportToManager(context, result, isChichewa),
                     ),
-                  ] 
+                  ]
                   // LOW CONFIDENCE: Show extension officer
                   else ...[
                     const SizedBox(height: 20),
-                    
+
                     // Warning message
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -481,11 +503,14 @@ class _ScanPageState extends State<ScanPage> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.warning_amber, color: AppTheme.warningAmber),
+                          Icon(
+                            Icons.warning_amber,
+                            color: AppTheme.warningAmber,
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              isChichewa 
+                              isChichewa
                                   ? 'Zotsatira zikumveka bwino. Fotokozani kwa Afesa Officer kuti muthe kulandira thandizo lalikulu.'
                                   : 'Results are uncertain. Please consult an Extension Officer for better assistance.',
                               style: AppTextStyles.bodyMedium,
@@ -494,13 +519,15 @@ class _ScanPageState extends State<ScanPage> {
                         ],
                       ),
                     ),
-                    
+
                     const SizedBox(height: 20),
-                    
+
                     // Extension Officer Contact
                     if (nearestOfficer != null)
                       _buildContactCard(
-                        title: isChichewa ? 'Afesa Officer' : 'Extension Officer',
+                        title: isChichewa
+                            ? 'Afesa Officer'
+                            : 'Extension Officer',
                         name: nearestOfficer.name,
                         phone: nearestOfficer.phone,
                         icon: Icons.person,
@@ -508,20 +535,26 @@ class _ScanPageState extends State<ScanPage> {
                         onCall: () => _makePhoneCall(nearestOfficer!.phone),
                         isChichewa: isChichewa,
                       ),
-                    
+
                     // Contact Extension Officer via Message
                     if (nearestOfficer != null) ...[
                       const SizedBox(height: 12),
                       _buildMessageActionButton(
-                        label: isChichewa ? 'Lowa Fono la Afesa Officer' : 'Contact Extension Officer',
+                        label: isChichewa
+                            ? 'Lowa Fono la Afesa Officer'
+                            : 'Contact Extension Officer',
                         icon: Icons.message,
                         color: AppTheme.accentOrange,
-                        onTap: () => _contactExtensionOfficer(context, nearestOfficer, isChichewa),
+                        onTap: () => _contactExtensionOfficer(
+                          context,
+                          nearestOfficer,
+                          isChichewa,
+                        ),
                       ),
                     ],
-                    
+
                     const SizedBox(height: 20),
-                    
+
                     // Send Alert Button
                     SizedBox(
                       width: double.infinity,
@@ -536,7 +569,9 @@ class _ScanPageState extends State<ScanPage> {
                           );
                         },
                         icon: const Icon(Icons.send),
-                        label: Text(isChichewa ? 'TumizanaAlert' : 'Send Alert'),
+                        label: Text(
+                          isChichewa ? 'TumizanaAlert' : 'Send Alert',
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.accentOrange,
                           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -544,9 +579,9 @@ class _ScanPageState extends State<ScanPage> {
                       ),
                     ),
                   ],
-                  
+
                   const SizedBox(height: 20),
-                  
+
                   // Location
                   if (locationText.isNotEmpty)
                     Container(
@@ -557,26 +592,92 @@ class _ScanPageState extends State<ScanPage> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.location_on, size: 20, color: AppTheme.primaryGreen),
+                          const Icon(
+                            Icons.location_on,
+                            size: 20,
+                            color: AppTheme.primaryGreen,
+                          ),
                           const SizedBox(width: 8),
-                          Expanded(child: Text(locationText, style: AppTextStyles.bodyMedium)),
+                          Expanded(
+                            child: Text(
+                              locationText,
+                              style: AppTextStyles.bodyMedium,
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                  
+
                   const SizedBox(height: 12),
-                  
+
                   // Timestamp
                   Row(
                     children: [
-                      const Icon(Icons.access_time, size: 16, color: AppTheme.textMuted),
+                      const Icon(
+                        Icons.access_time,
+                        size: 16,
+                        color: AppTheme.textMuted,
+                      ),
                       const SizedBox(width: 4),
-                      Text(_formatDate(result.timestamp), style: AppTextStyles.caption),
+                      Text(
+                        _formatDate(result.timestamp),
+                        style: AppTextStyles.caption,
+                      ),
                     ],
                   ),
-                  
+
                   const SizedBox(height: 24),
-                  
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        showModalBottomSheet(
+                          context: dialogContext,
+                          isScrollControlled: true,
+                          useSafeArea: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (sheetContext) {
+                            return DraggableScrollableSheet(
+                              initialChildSize: 0.82,
+                              minChildSize: 0.55,
+                              maxChildSize: 0.95,
+                              expand: false,
+                              builder: (context, controller) {
+                                return Container(
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.vertical(
+                                      top: Radius.circular(20),
+                                    ),
+                                  ),
+                                  child: AiAssistantTab(
+                                    isChichewa: isChichewa,
+                                    initialDiagnosis: result,
+                                    floatingMode: true,
+                                    onClose: () => Navigator.of(sheetContext).pop(),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        );
+                      },
+                      icon: const Icon(Icons.smart_toy),
+                      label: Text(
+                        isChichewa ? 'Funsani AI' : 'Ask AI Follow-up',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryGreen,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
                   // Action Buttons
                   Row(
                     children: [
@@ -593,10 +694,16 @@ class _ScanPageState extends State<ScanPage> {
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () {
-                            context.read<DiagnosisBloc>().add(DiagnosisSaveRequested(result));
+                            context.read<DiagnosisBloc>().add(
+                              DiagnosisSaveRequested(result),
+                            );
                             Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(isChichewa ? 'Salidwa!' : 'Saved!')),
+                              SnackBar(
+                                content: Text(
+                                  isChichewa ? 'Salidwa!' : 'Saved!',
+                                ),
+                              ),
                             );
                           },
                           child: Text(isChichewa ? 'Sunga' : 'Save'),
@@ -613,10 +720,16 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
-  Widget _buildConfidenceBadge(double confidence, bool isHighConfidence, bool isChichewa) {
-    final color = isHighConfidence ? AppTheme.healthyGreen : AppTheme.warningAmber;
+  Widget _buildConfidenceBadge(
+    double confidence,
+    bool isHighConfidence,
+    bool isChichewa,
+  ) {
+    final color = isHighConfidence
+        ? AppTheme.healthyGreen
+        : AppTheme.warningAmber;
     final confidencePercent = (confidence * 100).toStringAsFixed(0);
-    
+
     String confidenceMessage;
     if (confidence >= 0.8) {
       confidenceMessage = FarmerMessages.getConfidenceHigh(isChichewa);
@@ -625,7 +738,7 @@ class _ScanPageState extends State<ScanPage> {
     } else {
       confidenceMessage = FarmerMessages.getUncertainResult(isChichewa);
     }
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -661,7 +774,7 @@ class _ScanPageState extends State<ScanPage> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
-                  isHighConfidence 
+                  isHighConfidence
                       ? (isChichewa ? 'Yenjapola' : 'HIGH')
                       : (isChichewa ? 'Yotsika' : 'LOW'),
                   style: const TextStyle(
@@ -686,7 +799,11 @@ class _ScanPageState extends State<ScanPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.help_outline, color: AppTheme.warningAmber, size: 24),
+                const Icon(
+                  Icons.help_outline,
+                  color: AppTheme.warningAmber,
+                  size: 24,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -738,7 +855,10 @@ class _ScanPageState extends State<ScanPage> {
           const SizedBox(height: 12),
           Text(name, style: AppTextStyles.bodyLarge),
           const SizedBox(height: 4),
-          Text(phone, style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted)),
+          Text(
+            phone,
+            style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+          ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
@@ -746,9 +866,7 @@ class _ScanPageState extends State<ScanPage> {
               onPressed: onCall,
               icon: const Icon(Icons.phone, size: 18),
               label: Text(isChichewa ? 'Lowa fono' : 'Call Now'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: color,
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: color),
             ),
           ),
         ],
@@ -766,12 +884,21 @@ class _ScanPageState extends State<ScanPage> {
       ),
       child: Text(
         label,
-        style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 14),
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+        ),
       ),
     );
   }
 
-  Widget _buildDetailSection(String title, String content, bool isChichewa, IconData icon) {
+  Widget _buildDetailSection(
+    String title,
+    String content,
+    bool isChichewa,
+    IconData icon,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -781,7 +908,12 @@ class _ScanPageState extends State<ScanPage> {
             children: [
               Icon(icon, size: 18, color: AppTheme.primaryGreen),
               const SizedBox(width: 8),
-              Text(title, style: AppTextStyles.headingSmall.copyWith(color: AppTheme.primaryGreen)),
+              Text(
+                title,
+                style: AppTextStyles.headingSmall.copyWith(
+                  color: AppTheme.primaryGreen,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -801,10 +933,7 @@ class _ScanPageState extends State<ScanPage> {
   }
 
   Future<void> _makePhoneCall(String phoneNumber) async {
-    final Uri launchUri = Uri(
-      scheme: 'tel',
-      path: phoneNumber,
-    );
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(launchUri)) {
       await launchUrl(launchUri);
     }
@@ -817,11 +946,13 @@ class _ScanPageState extends State<ScanPage> {
     AuthState authState,
     bool isChichewa,
   ) {
-    final farmerName = authState.status == AuthStatus.authenticated && authState.user != null
-        ? authState.user!.fullName 
+    final farmerName =
+        authState.status == AuthStatus.authenticated && authState.user != null
+        ? authState.user!.fullName
         : 'Unknown Farmer';
-    final farmerPhone = authState.status == AuthStatus.authenticated && authState.user != null
-        ? authState.user!.phoneNumber 
+    final farmerPhone =
+        authState.status == AuthStatus.authenticated && authState.user != null
+        ? authState.user!.phoneNumber
         : 'Unknown';
 
     final alert = Alert(
@@ -829,15 +960,15 @@ class _ScanPageState extends State<ScanPage> {
       farmerName: farmerName,
       farmerPhone: farmerPhone,
       location: location,
-      cropName: isChichewa 
-          ? result.cropType.displayNameChichewa 
+      cropName: isChichewa
+          ? result.cropType.displayNameChichewa
           : result.cropType.displayName,
-      diagnosisName: isChichewa 
-          ? result.diagnosisNameChichewa 
+      diagnosisName: isChichewa
+          ? result.diagnosisNameChichewa
           : result.diagnosisName,
       confidence: result.confidence,
       timestamp: DateTime.now(),
-      note: isChichewa 
+      note: isChichewa
           ? 'Zotsatira zikumveka bwino - zofunika kuwunikira'
           : 'Results uncertain - requires professional review',
     );
@@ -861,14 +992,18 @@ class _ScanPageState extends State<ScanPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isChichewa 
+                isChichewa
                     ? 'Zikomo kwambiri potiwuzani. Mudzathandizika mwatsiku 24. Tikugwira ntchito pa vuto lino.'
                     : 'Thank you for notifying us. You will be assisted within 24 hours. We are working on the problem.',
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  const Icon(Icons.access_time, size: 16, color: AppTheme.textMuted),
+                  const Icon(
+                    Icons.access_time,
+                    size: 16,
+                    color: AppTheme.textMuted,
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     _formatDate(DateTime.now()),
@@ -889,13 +1024,19 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
-  void _contactExtensionOfficer(BuildContext context, ExtensionOfficer? officer, bool isChichewa) {
+  void _contactExtensionOfficer(
+    BuildContext context,
+    ExtensionOfficer? officer,
+    bool isChichewa,
+  ) {
     if (officer == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isChichewa 
-              ? 'Palibe Afesa Officer wapezeka' 
-              : 'No Extension Officer found'),
+          content: Text(
+            isChichewa
+                ? 'Palibe Afesa Officer wapezeka'
+                : 'No Extension Officer found',
+          ),
         ),
       );
       return;
@@ -915,20 +1056,21 @@ class _ScanPageState extends State<ScanPage> {
                 child: const Icon(Icons.person, size: 40, color: Colors.white),
               ),
               const SizedBox(height: 16),
-              Text(
-                officer.name,
-                style: AppTextStyles.headingMedium,
-              ),
+              Text(officer.name, style: AppTextStyles.headingMedium),
               const SizedBox(height: 4),
               Text(
                 isChichewa ? 'Afesa Officer' : 'Extension Officer',
-                style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppTheme.textMuted,
+                ),
               ),
               if (officer.area != null) ...[
                 const SizedBox(height: 4),
                 Text(
                   officer.area!,
-                  style: AppTextStyles.bodySmall.copyWith(color: AppTheme.primaryGreen),
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppTheme.primaryGreen,
+                  ),
                 ),
               ],
               const SizedBox(height: 24),
@@ -953,7 +1095,12 @@ class _ScanPageState extends State<ScanPage> {
                     child: OutlinedButton.icon(
                       onPressed: () {
                         Navigator.pop(bottomSheetContext);
-                        _startMessageConversation(context, officer, 'extensionOfficer', isChichewa);
+                        _startMessageConversation(
+                          context,
+                          officer,
+                          'extensionOfficer',
+                          isChichewa,
+                        );
                       },
                       icon: const Icon(Icons.message),
                       label: Text(isChichewa ? 'Uthenga' : 'Message'),
@@ -971,13 +1118,17 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
-  void _contactAgroDealer(BuildContext context, AgroDealer? dealer, bool isChichewa) {
+  void _contactAgroDealer(
+    BuildContext context,
+    AgroDealer? dealer,
+    bool isChichewa,
+  ) {
     if (dealer == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isChichewa 
-              ? 'Palibe Agro Dealer wapezeka' 
-              : 'No Agro Dealer found'),
+          content: Text(
+            isChichewa ? 'Palibe Agro Dealer wapezeka' : 'No Agro Dealer found',
+          ),
         ),
       );
       return;
@@ -997,20 +1148,21 @@ class _ScanPageState extends State<ScanPage> {
                 child: const Icon(Icons.store, size: 40, color: Colors.white),
               ),
               const SizedBox(height: 16),
-              Text(
-                dealer.name,
-                style: AppTextStyles.headingMedium,
-              ),
+              Text(dealer.name, style: AppTextStyles.headingMedium),
               const SizedBox(height: 4),
               Text(
                 isChichewa ? 'Agro-Dealer' : 'Agro-Dealer',
-                style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppTheme.textMuted,
+                ),
               ),
               if (dealer.area != null) ...[
                 const SizedBox(height: 4),
                 Text(
                   dealer.area!,
-                  style: AppTextStyles.bodySmall.copyWith(color: AppTheme.primaryGreen),
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppTheme.primaryGreen,
+                  ),
                 ),
               ],
               const SizedBox(height: 24),
@@ -1035,7 +1187,12 @@ class _ScanPageState extends State<ScanPage> {
                     child: OutlinedButton.icon(
                       onPressed: () {
                         Navigator.pop(bottomSheetContext);
-                        _startMessageConversation(context, null, 'agroDealer', isChichewa);
+                        _startMessageConversation(
+                          context,
+                          null,
+                          'agroDealer',
+                          isChichewa,
+                        );
                       },
                       icon: const Icon(Icons.message),
                       label: Text(isChichewa ? 'Uthenga' : 'Message'),
@@ -1053,7 +1210,11 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
-  void _reportToManager(BuildContext context, DiagnosisResult result, bool isChichewa) {
+  void _reportToManager(
+    BuildContext context,
+    DiagnosisResult result,
+    bool isChichewa,
+  ) {
     showDialog(
       context: context,
       builder: (dialogContext) {
@@ -1070,7 +1231,7 @@ class _ScanPageState extends State<ScanPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isChichewa 
+                isChichewa
                     ? 'Kodi mukufuna kutumiza report ya matenda kwa Agriculture Manager?'
                     : 'Do you want to send a disease report to the Agriculture Manager?',
               ),
@@ -1089,10 +1250,12 @@ class _ScanPageState extends State<ScanPage> {
                       style: AppTextStyles.caption,
                     ),
                     Text(
-                      isChichewa 
-                          ? result.diagnosisNameChichewa 
+                      isChichewa
+                          ? result.diagnosisNameChichewa
                           : result.diagnosisName,
-                      style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.bold),
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -1107,12 +1270,17 @@ class _ScanPageState extends State<ScanPage> {
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(dialogContext);
-                _startMessageConversation(context, null, 'agricultureManager', isChichewa);
+                _startMessageConversation(
+                  context,
+                  null,
+                  'agricultureManager',
+                  isChichewa,
+                );
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(isChichewa 
-                        ? 'Report yatumizidwa!' 
-                        : 'Report sent!'),
+                    content: Text(
+                      isChichewa ? 'Report yatumizidwa!' : 'Report sent!',
+                    ),
                     backgroundColor: AppTheme.healthyGreen,
                   ),
                 );
@@ -1128,24 +1296,33 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
-  void _startMessageConversation(BuildContext context, dynamic entity, String targetRole, bool isChichewa) {
+  void _startMessageConversation(
+    BuildContext context,
+    dynamic entity,
+    String targetRole,
+    bool isChichewa,
+  ) {
     // TODO: Implement conversation start with MessagingBloc
     // For now, show a message
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(isChichewa 
-            ? 'Kukambirana kuyamba...' 
-            : 'Starting conversation...'),
+        content: Text(
+          isChichewa ? 'Kukambirana kuyamba...' : 'Starting conversation...',
+        ),
       ),
     );
   }
 
   Color _getSeverityColor(dynamic severity) {
     switch (severity.toString()) {
-      case 'Severity.low': return AppTheme.healthyGreen;
-      case 'Severity.medium': return AppTheme.warningAmber;
-      case 'Severity.high': return AppTheme.diseaseRed;
-      default: return AppTheme.textLight;
+      case 'Severity.low':
+        return AppTheme.healthyGreen;
+      case 'Severity.medium':
+        return AppTheme.warningAmber;
+      case 'Severity.high':
+        return AppTheme.diseaseRed;
+      default:
+        return AppTheme.textLight;
     }
   }
 

@@ -8,6 +8,7 @@ import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../../features/auth/domain/usecases/login_usecase.dart';
 import '../../features/auth/domain/usecases/register_usecase.dart';
 import '../../features/auth/domain/usecases/logout_usecase.dart';
+import '../../features/auth/domain/usecases/get_current_user_usecase.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/settings/data/datasources/settings_local_datasource.dart';
 import '../../features/settings/data/repositories/settings_repository_impl.dart';
@@ -34,105 +35,105 @@ import '../../features/messaging/data/services/messaging_service.dart';
 import '../../features/messaging/domain/repositories/messaging_repository.dart';
 import '../../features/messaging/presentation/bloc/messaging_bloc.dart';
 import '../../features/notifications/data/services/notification_service.dart';
+import '../services/ai_assistant_service.dart';
 
 final sl = GetIt.instance;
 
 Future<void> initDependencies() async {
   await Hive.initFlutter();
-  
+
   await Hive.openBox(AppConstants.userBox);
   await Hive.openBox(AppConstants.diagnosisBox);
   await Hive.openBox(AppConstants.settingsBox);
   await Hive.openBox(AppConstants.cacheBox);
   await Hive.openBox(AppConstants.alertsBox);
-  
+
   sl.registerLazySingleton<AuthLocalDataSource>(
     () => AuthLocalDataSourceImpl(userBox),
   );
-  
+
   sl.registerLazySingleton<SettingsLocalDataSource>(
     () => SettingsLocalDataSourceImpl(settingsBox),
   );
-  
+
   sl.registerLazySingleton<DiagnosisLocalDataSource>(
     () => DiagnosisLocalDataSourceImpl(diagnosisBox),
   );
-  
-  sl.registerLazySingleton<MalawiDataSource>(
-    () => MalawiDataSource(),
-  );
-  
+
+  sl.registerLazySingleton<MalawiDataSource>(() => MalawiDataSource());
+
   sl.registerLazySingleton<AlertsLocalDataSource>(
     () => AlertsLocalDataSourceImpl(alertsBox),
   );
-  
-  sl.registerLazySingleton<AuthRepository>(
-    () => AuthRepositoryImpl(sl()),
-  );
-  
+
+  sl.registerLazySingleton<AuthRepository>(() => AuthRepositoryImpl(sl()));
+
   sl.registerLazySingleton<SettingsRepository>(
     () => SettingsRepositoryImpl(sl()),
   );
-  
+
   sl.registerLazySingleton<DiagnosisRepository>(
     () => DiagnosisRepositoryImpl(sl()),
   );
-  
+
   sl.registerLazySingleton<LocationRepository>(
     () => LocationRepositoryImpl(malawiDataSource: sl()),
   );
-  
+
   sl.registerLazySingleton(() => LoginUseCase(sl()));
   sl.registerLazySingleton(() => RegisterUseCase(sl()));
   sl.registerLazySingleton(() => LogoutUseCase(sl()));
-  
+  sl.registerLazySingleton(() => GetCurrentUserUseCase(sl()));
+
   sl.registerLazySingleton(() => AnalyzeImageUseCase());
   sl.registerLazySingleton(() => GetHistoryUseCase(sl()));
   sl.registerLazySingleton(() => SaveDiagnosisUseCase(sl()));
-  
+
   sl.registerLazySingleton(() => GetCurrentLocationUseCase(sl()));
   sl.registerLazySingleton(() => GetNearestExtensionOfficerUseCase(sl()));
   sl.registerLazySingleton(() => GetNearestAgroDealerUseCase(sl()));
-  
-  sl.registerFactory(() => AuthBloc(
-    loginUseCase: sl(),
-    registerUseCase: sl(),
-    logoutUseCase: sl(),
-  ));
-  
-  sl.registerFactory(() => SettingsBloc(
-    settingsRepository: sl(),
-  ));
-  
-  sl.registerFactory(() => DiagnosisBloc(
-    analyzeImageUseCase: sl(),
-    getHistoryUseCase: sl(),
-    saveDiagnosisUseCase: sl(),
-  ));
-  
-  sl.registerFactory(() => LocationBloc(
-    getCurrentLocation: sl(),
-    getNearestExtensionOfficer: sl(),
-    getNearestAgroDealer: sl(),
-  ));
-  
-  sl.registerFactory(() => AlertsBloc(
-    dataSource: sl(),
-  ));
-  
-  sl.registerFactory(() => ConnectivityBloc());
-  
-  // Messaging
-  sl.registerLazySingleton<MessagingRepository>(
-    () => MessagingService(),
+
+  sl.registerFactory(
+    () => AuthBloc(
+      loginUseCase: sl(),
+      registerUseCase: sl(),
+      logoutUseCase: sl(),
+      getCurrentUserUseCase: sl(),
+    ),
   );
-  
-  sl.registerFactory(() => MessagingBloc(
-    messagingRepository: sl(),
-  ));
-  
+
+  sl.registerFactory(() => SettingsBloc(settingsRepository: sl()));
+
+  sl.registerFactory(
+    () => DiagnosisBloc(
+      analyzeImageUseCase: sl(),
+      getHistoryUseCase: sl(),
+      saveDiagnosisUseCase: sl(),
+    ),
+  );
+
+  sl.registerFactory(
+    () => LocationBloc(
+      getCurrentLocation: sl(),
+      getNearestExtensionOfficer: sl(),
+      getNearestAgroDealer: sl(),
+    ),
+  );
+
+  sl.registerFactory(() => AlertsBloc(dataSource: sl()));
+
+  sl.registerFactory(() => ConnectivityBloc());
+
+  // Messaging
+  sl.registerLazySingleton<MessagingRepository>(() => MessagingService());
+
+  sl.registerFactory(() => MessagingBloc(messagingRepository: sl()));
+
   // Notifications
   sl.registerLazySingleton(() => NotificationService.instance);
+
+  // AI Assistant
+  sl.registerLazySingleton(() => AiAssistantService(cacheBox: cacheBox));
 }
 
 Box get userBox => Hive.box(AppConstants.userBox);

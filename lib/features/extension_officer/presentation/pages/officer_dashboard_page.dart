@@ -4,8 +4,6 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../alerts/presentation/bloc/alerts_bloc.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
-import '../../../auth/presentation/bloc/auth_state.dart';
-import '../../../location/domain/entities/extension_officer.dart';
 
 class OfficerDashboardPage extends StatefulWidget {
   const OfficerDashboardPage({super.key});

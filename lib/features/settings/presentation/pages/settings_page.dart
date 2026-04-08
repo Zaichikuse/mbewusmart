@@ -154,7 +154,7 @@ class SettingsPage extends StatelessWidget {
       onChanged: (value) {
         context.read<SettingsBloc>().add(SettingsNotificationsToggled(value));
       },
-      activeColor: AppTheme.primaryGreen,
+      activeThumbColor: AppTheme.primaryGreen,
     );
   }
 

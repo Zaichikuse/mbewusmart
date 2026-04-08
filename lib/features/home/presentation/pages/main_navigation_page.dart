@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/di/injection_container.dart' as di;
+import '../../../../core/services/ai_assistant_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../scan/presentation/pages/scan_page.dart';
 import '../../../history/presentation/pages/history_page.dart';
+import '../../../history/presentation/widgets/ai_assistant_tab.dart';
 import '../../../settings/presentation/pages/settings_page.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
-import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../auth/domain/entities/user.dart';
+import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../extension_officer/presentation/pages/officer_dashboard_page.dart';
 import '../../../manager/presentation/pages/manager_dashboard_page.dart';
 import '../../../agro_dealer/presentation/pages/dealer_dashboard_page.dart';
@@ -24,11 +27,13 @@ class MainNavigationPage extends StatefulWidget {
 
 class _MainNavigationPageState extends State<MainNavigationPage> {
   late int _currentIndex;
+  late final AiAssistantService _assistantService;
   
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    _assistantService = di.sl<AiAssistantService>();
   }
 
   UserRole _getUserRole() {
@@ -45,6 +50,11 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     final userRole = _getUserRole();
     final pages = _getPagesForRole(userRole);
     final navItems = _getNavItemsForRole(userRole);
+    final isSettingsTab = _currentIndex == navItems.length - 1;
+    final settingsState = context.watch<SettingsBloc>().state;
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
+        : true;
 
     return Scaffold(
       body: Column(
@@ -70,6 +80,61 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
         unselectedItemColor: AppTheme.textMuted,
         items: navItems,
       ),
+      floatingActionButton: isSettingsTab
+          ? null
+          : FloatingActionButton(
+              heroTag: 'global_ai_fab',
+              backgroundColor: AppTheme.primaryGreen,
+              tooltip: isChichewa ? 'Tsegulani AI chat' : 'Open AI chat',
+              onPressed: () => _openGlobalAiChat(
+                isChichewa: isChichewa,
+                pageContext: _resolvePageContext(navItems),
+              ),
+              child: const Icon(Icons.smart_toy, color: Colors.white),
+            ),
+    );
+  }
+
+  String _resolvePageContext(List<BottomNavigationBarItem> navItems) {
+    final label = navItems[_currentIndex].label ?? 'General';
+    if (label == 'History') {
+      return _assistantService.currentUiContext;
+    }
+    return label;
+  }
+
+  void _openGlobalAiChat({
+    required bool isChichewa,
+    required String pageContext,
+  }) {
+    _assistantService.setCurrentUiContext(pageContext);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.82,
+          minChildSize: 0.55,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, controller) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: AiAssistantTab(
+                isChichewa: isChichewa,
+                floatingMode: true,
+                pageContext: pageContext,
+                onClose: () => Navigator.of(sheetContext).pop(),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

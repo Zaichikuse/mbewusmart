@@ -1,6 +1,5 @@
 import 'package:dartz/dartz.dart';
 import '../../../../core/error/failures.dart';
-import '../repositories/settings_repository.dart';
 
 abstract class SettingsRepository {
   Future<Either<Failure, String>> getLanguage();

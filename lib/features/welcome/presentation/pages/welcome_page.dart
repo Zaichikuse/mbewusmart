@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+
+import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/routes/app_routes.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
@@ -14,6 +17,7 @@ class WelcomePage extends StatefulWidget {
 }
 
 class _WelcomePageState extends State<WelcomePage> {
+  static const String _languageSetupCompletedKey = 'language_setup_completed';
   String _selectedLanguage = 'ny';
 
   @override
@@ -44,6 +48,8 @@ class _WelcomePageState extends State<WelcomePage> {
   void _continueToLogin() {
     try {
       context.read<SettingsBloc>().add(SettingsLanguageChanged(_selectedLanguage));
+      final settingsBox = Hive.box(AppConstants.settingsBox);
+      settingsBox.put(_languageSetupCompletedKey, true);
     } catch (e) {
       // Ignore if bloc is not available
     }
@@ -64,6 +70,7 @@ class _WelcomePageState extends State<WelcomePage> {
     final isChichewa = _selectedLanguage == 'ny';
 
     return Scaffold(
+      floatingActionButton: null,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),

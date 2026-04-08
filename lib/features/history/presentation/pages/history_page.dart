@@ -1,26 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/di/injection_container.dart' as di;
+import '../../../../core/services/ai_assistant_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import '../../../diagnosis/domain/entities/diagnosis_result.dart';
 
 class HistoryPage extends StatefulWidget {
-  const HistoryPage({super.key});
+  final int initialTab;
+  final DiagnosisResult? initialDiagnosis;
+
+  const HistoryPage({super.key, this.initialTab = 0, this.initialDiagnosis});
 
   @override
   State<HistoryPage> createState() => _HistoryPageState();
 }
 
-class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStateMixin {
+class _HistoryPageState extends State<HistoryPage>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late final AiAssistantService _assistantService;
   String _selectedMonth = 'all';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    context.read<DiagnosisBloc>().add(DiagnosisHistoryRequested());
+    final safeInitialTab = widget.initialTab.clamp(0, 1);
+    _assistantService = di.sl<AiAssistantService>();
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: safeInitialTab,
+    );
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        return;
+      }
+
+      final contextName = _tabController.index == 1 ? 'Reports' : 'History';
+      _assistantService.setCurrentUiContext(contextName);
+    });
+
+    _assistantService.setCurrentUiContext(safeInitialTab == 1 ? 'Reports' : 'History');
+    final userId = context.read<AuthBloc>().state.user?.id;
+    context.read<DiagnosisBloc>().add(DiagnosisHistoryRequested(userId: userId));
   }
 
   @override
@@ -32,13 +57,18 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     final settingsState = context.watch<SettingsBloc>().state;
-    final isChichewa = settingsState is SettingsLoaded 
-        ? settingsState.languageCode == 'ny' 
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
         : true;
+    final userId = context.read<AuthBloc>().state.user?.id;
+    final chatMessages = _assistantService.loadHistory(
+      isChichewa ? 'ny' : 'en',
+      userId: userId,
+    );
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isChichewa ? 'Mbiri & M报告' : 'History & Reports'),
+        title: Text(isChichewa ? 'Mbiri ndi Malipoti' : 'History and Reports'),
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: Colors.white,
@@ -46,49 +76,52 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
           unselectedLabelColor: Colors.white70,
           tabs: [
             Tab(text: isChichewa ? 'Mbiri' : 'History'),
-            Tab(text: isChichewa ? 'M报告' : 'Reports'),
+            Tab(text: isChichewa ? 'Malipoti' : 'Reports'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildHistoryTab(isChichewa),
+          _buildHistoryTab(isChichewa, chatMessages),
           _buildReportsTab(isChichewa),
         ],
       ),
     );
   }
 
-  Widget _buildHistoryTab(bool isChichewa) {
+  Widget _buildHistoryTab(bool isChichewa, List<AiChatMessage> chatMessages) {
     return BlocBuilder<DiagnosisBloc, DiagnosisState>(
       builder: (context, state) {
         if (state is DiagnosisLoading) {
           return const Center(child: CircularProgressIndicator());
         }
-        
+
         if (state is DiagnosisHistoryLoaded) {
           if (state.history.isEmpty) {
             return _buildEmptyState(isChichewa);
           }
-          
+
           final filteredHistory = _filterHistory(state.history);
-          
+
           return RefreshIndicator(
             onRefresh: () async {
-              context.read<DiagnosisBloc>().add(DiagnosisHistoryRequested());
+              final userId = context.read<AuthBloc>().state.user?.id;
+              context.read<DiagnosisBloc>().add(
+                DiagnosisHistoryRequested(userId: userId),
+              );
             },
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: filteredHistory.length,
               itemBuilder: (context, index) {
                 final result = filteredHistory[index];
-                return _buildHistoryCard(result, isChichewa);
+                return _buildHistoryCard(result, isChichewa, chatMessages);
               },
             ),
           );
         }
-        
+
         if (state is DiagnosisError) {
           return Center(
             child: Column(
@@ -100,7 +133,10 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: () {
-                    context.read<DiagnosisBloc>().add(DiagnosisHistoryRequested());
+                    final userId = context.read<AuthBloc>().state.user?.id;
+                    context.read<DiagnosisBloc>().add(
+                      DiagnosisHistoryRequested(userId: userId),
+                    );
                   },
                   child: Text(isChichewa ? 'Jarani' : 'Retry'),
                 ),
@@ -108,7 +144,7 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
             ),
           );
         }
-        
+
         return _buildEmptyState(isChichewa);
       },
     );
@@ -120,7 +156,7 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
         if (state is DiagnosisHistoryLoaded) {
           final history = state.history;
           final filteredHistory = _filterHistory(history);
-          
+
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -137,20 +173,13 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
             ),
           );
         }
-        
+
         return const Center(child: CircularProgressIndicator());
       },
     );
   }
 
   Widget _buildMonthFilter(bool isChichewa) {
-    final months = [
-      'all',
-      DateTime.now().month.toString(),
-      ((DateTime.now().month - 1) % 12 + 12) % 12 == 0 ? '12' : ((DateTime.now().month - 1) % 12 + 12).toString(),
-      ((DateTime.now().month - 2) % 12 + 12) % 12 == 0 ? '12' : ((DateTime.now().month - 2) % 12 + 12).toString(),
-    ];
-    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -163,10 +192,15 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
           spacing: 8,
           children: [
             _buildFilterChip('all', isChichewa ? 'Onse' : 'All'),
-            _buildFilterChip(DateTime.now().month.toString(), isChichewa ? 'Mweyi uno' : 'This Month'),
             _buildFilterChip(
-              ((DateTime.now().month - 1) % 12 + 12) % 12 == 0 ? '12' : ((DateTime.now().month - 1) % 12 + 12).toString(), 
-              isChichewa ? 'Mweyi yapita' : 'Last Month'
+              DateTime.now().month.toString(),
+              isChichewa ? 'Mweyi uno' : 'This Month',
+            ),
+            _buildFilterChip(
+              ((DateTime.now().month - 1) % 12 + 12) % 12 == 0
+                  ? '12'
+                  : ((DateTime.now().month - 1) % 12 + 12).toString(),
+              isChichewa ? 'Mweyi yapita' : 'Last Month',
             ),
           ],
         ),
@@ -191,59 +225,82 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
 
   List<DiagnosisResult> _filterHistory(List<DiagnosisResult> history) {
     if (_selectedMonth == 'all') return history;
-    
+
     final month = int.tryParse(_selectedMonth) ?? 0;
     return history.where((r) => r.timestamp.month == month).toList();
   }
 
-  Widget _buildSummaryCards(List<DiagnosisResult> allHistory, List<DiagnosisResult> filteredHistory, bool isChichewa) {
+  Widget _buildSummaryCards(
+    List<DiagnosisResult> allHistory,
+    List<DiagnosisResult> filteredHistory,
+    bool isChichewa,
+  ) {
     final count = filteredHistory.length;
-    final diseaseCount = filteredHistory.where((r) => r.type.name == 'disease').length;
-    final pestCount = filteredHistory.where((r) => r.type.name == 'pest').length;
-    final healthyCount = filteredHistory.where((r) => r.type.name == 'healthy').length;
+    final diseaseCount = filteredHistory
+        .where((r) => r.type.name == 'disease')
+        .length;
+    final pestCount = filteredHistory
+        .where((r) => r.type.name == 'pest')
+        .length;
+    final healthyCount = filteredHistory
+        .where((r) => r.type.name == 'healthy')
+        .length;
 
     return Column(
       children: [
         Row(
           children: [
-            Expanded(child: _buildSummaryCard(
-              isChichewa ? 'Onse' : 'Total',
-              count.toString(),
-              Icons.summarize,
-              AppTheme.primaryGreen,
-            )),
+            Expanded(
+              child: _buildSummaryCard(
+                isChichewa ? 'Onse' : 'Total',
+                count.toString(),
+                Icons.summarize,
+                AppTheme.primaryGreen,
+              ),
+            ),
             const SizedBox(width: 12),
-            Expanded(child: _buildSummaryCard(
-              isChichewa ? 'Matenda' : 'Diseases',
-              diseaseCount.toString(),
-              Icons.coronavirus,
-              AppTheme.diseaseRed,
-            )),
+            Expanded(
+              child: _buildSummaryCard(
+                isChichewa ? 'Matenda' : 'Diseases',
+                diseaseCount.toString(),
+                Icons.coronavirus,
+                AppTheme.diseaseRed,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: _buildSummaryCard(
-              isChichewa ? 'Zotchinga' : 'Pests',
-              pestCount.toString(),
-              Icons.bug_report,
-              AppTheme.pestOrange,
-            )),
+            Expanded(
+              child: _buildSummaryCard(
+                isChichewa ? 'Zotchinga' : 'Pests',
+                pestCount.toString(),
+                Icons.bug_report,
+                AppTheme.pestOrange,
+              ),
+            ),
             const SizedBox(width: 12),
-            Expanded(child: _buildSummaryCard(
-              isChichewa ? 'Zabwino' : 'Healthy',
-              healthyCount.toString(),
-              Icons.check_circle,
-              AppTheme.healthyGreen,
-            )),
+            Expanded(
+              child: _buildSummaryCard(
+                isChichewa ? 'Zabwino' : 'Healthy',
+                healthyCount.toString(),
+                Icons.check_circle,
+                AppTheme.healthyGreen,
+              ),
+            ),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
+  Widget _buildSummaryCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -271,8 +328,18 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
-              Text(title, style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+              Text(
+                title,
+                style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+              ),
             ],
           ),
         ],
@@ -280,7 +347,10 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildCropDistribution(List<DiagnosisResult> history, bool isChichewa) {
+  Widget _buildCropDistribution(
+    List<DiagnosisResult> history,
+    bool isChichewa,
+  ) {
     final maize = history.where((r) => r.type.name == 'maize').length;
     final cassava = history.where((r) => r.type.name == 'cassava').length;
     final tomato = history.where((r) => r.type.name == 'tomato').length;
@@ -314,7 +384,10 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildSeverityDistribution(List<DiagnosisResult> history, bool isChichewa) {
+  Widget _buildSeverityDistribution(
+    List<DiagnosisResult> history,
+    bool isChichewa,
+  ) {
     final low = history.where((r) => r.severity.name == 'low').length;
     final medium = history.where((r) => r.severity.name == 'medium').length;
     final high = history.where((r) => r.severity.name == 'high').length;
@@ -338,7 +411,12 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
             children: [
               _buildDistributionRow('Low', low, total, AppTheme.healthyGreen),
               const SizedBox(height: 8),
-              _buildDistributionRow('Medium', medium, total, AppTheme.warningAmber),
+              _buildDistributionRow(
+                'Medium',
+                medium,
+                total,
+                AppTheme.warningAmber,
+              ),
               const SizedBox(height: 8),
               _buildDistributionRow('High', high, total, AppTheme.diseaseRed),
             ],
@@ -348,7 +426,12 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildDistributionRow(String label, int count, int total, [Color? color]) {
+  Widget _buildDistributionRow(
+    String label,
+    int count,
+    int total, [
+    Color? color,
+  ]) {
     final percentage = total > 0 ? (count / total * 100).round() : 0;
     return Row(
       children: [
@@ -362,13 +445,18 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
             child: LinearProgressIndicator(
               value: total > 0 ? count / total : 0,
               backgroundColor: Colors.grey[200],
-              valueColor: AlwaysStoppedAnimation(color ?? AppTheme.primaryGreen),
+              valueColor: AlwaysStoppedAnimation(
+                color ?? AppTheme.primaryGreen,
+              ),
               minHeight: 8,
             ),
           ),
         ),
         const SizedBox(width: 12),
-        Text('$percentage%', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        Text(
+          '$percentage%',
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
       ],
     );
   }
@@ -378,11 +466,7 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.history,
-            size: 80,
-            color: AppTheme.textMuted,
-          ),
+          Icon(Icons.history, size: 80, color: AppTheme.textMuted),
           const SizedBox(height: 16),
           Text(
             isChichewa ? 'Palibe mbiri' : 'No history yet',
@@ -392,19 +476,27 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
           ),
           const SizedBox(height: 8),
           Text(
-            isChichewa 
+            isChichewa
                 ? 'Zopima zanu zidzasungidwa apa'
                 : 'Your diagnoses will appear here',
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppTheme.textMuted,
-            ),
+            style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHistoryCard(DiagnosisResult result, bool isChichewa) {
+  Widget _buildHistoryCard(
+    DiagnosisResult result,
+    bool isChichewa,
+    List<AiChatMessage> chatMessages,
+  ) {
+    final linkedMessages = chatMessages
+        .where((m) => m.diagnosisId == result.id)
+        .toList();
+    final hasConversation = linkedMessages.isNotEmpty;
+    final latestChat = hasConversation ? linkedMessages.last.text : null;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
@@ -418,7 +510,9 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  color: _getSeverityColor(result.severity).withValues(alpha: 0.1),
+                  color: _getSeverityColor(
+                    result.severity,
+                  ).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
@@ -433,14 +527,18 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isChichewa ? result.diagnosisNameChichewa : result.diagnosisName,
+                      isChichewa
+                          ? result.diagnosisNameChichewa
+                          : result.diagnosisName,
                       style: AppTextStyles.headingSmall,
                     ),
                     const SizedBox(height: 4),
                     Row(
                       children: [
                         _buildChip(
-                          isChichewa ? result.type.displayNameChichewa : result.type.displayName,
+                          isChichewa
+                              ? result.type.displayNameChichewa
+                              : result.type.displayName,
                           _getSeverityColor(result.severity),
                         ),
                         const SizedBox(width: 8),
@@ -450,13 +548,53 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
                         ),
                       ],
                     ),
+                    if (hasConversation) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryGreen.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.chat_bubble_outline,
+                              size: 14,
+                              color: AppTheme.primaryGreen,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                latestChat!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.textDark,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${linkedMessages.length}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.primaryGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_right,
-                color: AppTheme.textMuted,
-              ),
+              Icon(Icons.chevron_right, color: AppTheme.textMuted),
             ],
           ),
         ),
@@ -513,13 +651,15 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
                     ),
                   ),
                   const SizedBox(height: 20),
-                  
+
                   Row(
                     children: [
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: _getSeverityColor(result.severity).withValues(alpha: 0.1),
+                          color: _getSeverityColor(
+                            result.severity,
+                          ).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(
@@ -534,7 +674,9 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              isChichewa ? result.diagnosisNameChichewa : result.diagnosisName,
+                              isChichewa
+                                  ? result.diagnosisNameChichewa
+                                  : result.diagnosisName,
                               style: AppTextStyles.headingMedium,
                             ),
                             Text(
@@ -546,22 +688,26 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
                       ),
                     ],
                   ),
-                  
+
                   const SizedBox(height: 24),
-                  
+
                   _buildDetailRow(
                     isChichewa ? 'Mtundu' : 'Type',
-                    isChichewa ? result.type.displayNameChichewa : result.type.displayName,
+                    isChichewa
+                        ? result.type.displayNameChichewa
+                        : result.type.displayName,
                   ),
                   _buildDetailRow(
                     isChichewa ? 'Yambiri' : 'Severity',
-                    isChichewa ? result.severity.displayNameChichewa : result.severity.displayName,
+                    isChichewa
+                        ? result.severity.displayNameChichewa
+                        : result.severity.displayName,
                   ),
                   _buildDetailRow(
                     isChichewa ? 'Tsiku' : 'Date',
                     _formatDate(result.timestamp),
                   ),
-                  
+
                   if (result.treatment != null) ...[
                     const SizedBox(height: 20),
                     Text(
@@ -571,7 +717,7 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
                     const SizedBox(height: 8),
                     Text(result.treatment!, style: AppTextStyles.bodyMedium),
                   ],
-                  
+
                   if (result.recommendation != null) ...[
                     const SizedBox(height: 20),
                     Text(
@@ -579,7 +725,10 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
                       style: AppTextStyles.headingSmall,
                     ),
                     const SizedBox(height: 8),
-                    Text(result.recommendation!, style: AppTextStyles.bodyMedium),
+                    Text(
+                      result.recommendation!,
+                      style: AppTextStyles.bodyMedium,
+                    ),
                   ],
                 ],
               ),
@@ -596,7 +745,10 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted)),
+          Text(
+            label,
+            style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+          ),
           Text(value, style: AppTextStyles.bodyMedium),
         ],
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../domain/usecases/get_current_user_usecase.dart';
 import '../../domain/usecases/login_usecase.dart';
 import '../../domain/usecases/register_usecase.dart';
 import '../../domain/usecases/logout_usecase.dart';
@@ -9,11 +10,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final LoginUseCase loginUseCase;
   final RegisterUseCase registerUseCase;
   final LogoutUseCase logoutUseCase;
+  final GetCurrentUserUseCase getCurrentUserUseCase;
 
   AuthBloc({
     required this.loginUseCase,
     required this.registerUseCase,
     required this.logoutUseCase,
+    required this.getCurrentUserUseCase,
   }) : super(const AuthState()) {
     on<AuthCheckRequested>(_onCheckRequested);
     on<AuthLoginRequested>(_onLoginRequested);
@@ -27,8 +30,37 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(state.copyWith(status: AuthStatus.loading));
-    // For now, start with unauthenticated state - can be extended to check stored user
-    emit(state.copyWith(status: AuthStatus.unauthenticated));
+
+    final result = await getCurrentUserUseCase();
+    result.fold(
+      (_) => emit(
+        state.copyWith(
+          status: AuthStatus.unauthenticated,
+          clearUser: true,
+          clearErrorMessage: true,
+        ),
+      ),
+      (user) {
+        if (user == null) {
+          emit(
+            state.copyWith(
+              status: AuthStatus.unauthenticated,
+              clearUser: true,
+              clearErrorMessage: true,
+            ),
+          );
+          return;
+        }
+
+        emit(
+          state.copyWith(
+            status: AuthStatus.authenticated,
+            user: user,
+            clearErrorMessage: true,
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _onLoginRequested(
@@ -92,7 +124,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       )),
       (_) => emit(state.copyWith(
         status: AuthStatus.unauthenticated,
-        user: null,
+        clearUser: true,
+        clearErrorMessage: true,
       )),
     );
   }
@@ -109,7 +142,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     } else {
       emit(state.copyWith(
         status: AuthStatus.unauthenticated,
-        user: null,
+        clearUser: true,
+        clearErrorMessage: true,
       ));
     }
   }

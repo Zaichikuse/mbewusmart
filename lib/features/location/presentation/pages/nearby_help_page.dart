@@ -218,10 +218,10 @@ class NearbyHelpPage extends StatelessWidget {
                       ),
                     ],
                   ),
-                  if (dealer.products != null && dealer.products!.isNotEmpty) ...[
+                  if (dealer.products.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      dealer.products!.take(3).join(', '),
+                      dealer.products.take(3).join(', '),
                       style: const TextStyle(
                         fontSize: 11,
                         color: AppTheme.textMuted,

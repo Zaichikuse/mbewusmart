@@ -90,7 +90,7 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 16),
                   
                   DropdownButtonFormField<UserRole>(
-                    value: _selectedRole,
+                    initialValue: _selectedRole,
                     decoration: InputDecoration(
                       labelText: isChichewa ? 'Sankha Umodzi Wanu' : 'Select Your Role',
                       prefixIcon: const Icon(Icons.work),

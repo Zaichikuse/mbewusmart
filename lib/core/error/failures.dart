@@ -10,29 +10,29 @@ abstract class Failure extends Equatable {
 }
 
 class ServerFailure extends Failure {
-  const ServerFailure([String message = 'Server error occurred']) : super(message);
+  const ServerFailure([super.message = 'Server error occurred']);
 }
 
 class CacheFailure extends Failure {
-  const CacheFailure([String message = 'Cache error occurred']) : super(message);
+  const CacheFailure([super.message = 'Cache error occurred']);
 }
 
 class NetworkFailure extends Failure {
-  const NetworkFailure([String message = 'No internet connection']) : super(message);
+  const NetworkFailure([super.message = 'No internet connection']);
 }
 
 class ValidationFailure extends Failure {
-  const ValidationFailure(String message) : super(message);
+  const ValidationFailure(super.message);
 }
 
 class AuthFailure extends Failure {
-  const AuthFailure([String message = 'Authentication failed']) : super(message);
+  const AuthFailure([super.message = 'Authentication failed']);
 }
 
 class PermissionFailure extends Failure {
-  const PermissionFailure([String message = 'Permission denied']) : super(message);
+  const PermissionFailure([super.message = 'Permission denied']);
 }
 
 class StorageFailure extends Failure {
-  const StorageFailure([String message = 'Storage error occurred']) : super(message);
+  const StorageFailure([super.message = 'Storage error occurred']);
 }

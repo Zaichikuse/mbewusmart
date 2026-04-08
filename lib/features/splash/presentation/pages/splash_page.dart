@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+
+import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/routes/app_routes.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
@@ -15,6 +18,7 @@ class SplashPage extends StatefulWidget {
 }
 
 class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateMixin {
+  static const String _languageSetupCompletedKey = 'language_setup_completed';
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
@@ -59,10 +63,18 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
           Navigator.of(context).pushReplacementNamed(AppRoutes.home);
         }
       } else {
+        final settingsBox = Hive.box(AppConstants.settingsBox);
+        final hasCompletedLanguageSetup =
+            settingsBox.get(_languageSetupCompletedKey, defaultValue: false) as bool;
+
+        final nextRoute = hasCompletedLanguageSetup
+            ? AppRoutes.login
+            : AppRoutes.welcome;
+
         try {
-          context.go(AppRoutes.welcome);
+          context.go(nextRoute);
         } catch (e) {
-          Navigator.of(context).pushReplacementNamed(AppRoutes.welcome);
+          Navigator.of(context).pushReplacementNamed(nextRoute);
         }
       }
     } catch (e) {

@@ -1,26 +1,22 @@
 import 'dart:async';
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/home/presentation/pages/main_navigation_page.dart';
 import '../../features/splash/presentation/pages/splash_page.dart';
 import '../../features/welcome/presentation/pages/welcome_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
-import '../../features/scan/presentation/pages/scan_page.dart';
-import '../../features/history/presentation/pages/history_page.dart';
-import '../../features/settings/presentation/pages/settings_page.dart';
 import '../../features/location/presentation/pages/nearby_help_page.dart';
-import '../../features/extension_officer/presentation/pages/officer_dashboard_page.dart';
-import '../../features/manager/presentation/pages/manager_dashboard_page.dart';
-import '../../features/agro_dealer/presentation/pages/dealer_dashboard_page.dart';
 import '../../features/messaging/presentation/pages/conversations_page.dart';
 import '../../features/notifications/presentation/pages/notification_page.dart';
 import 'app_routes.dart';
 
 class AppRouter {
+  static const String _languageSetupCompletedKey = 'language_setup_completed';
   final AuthBloc authBloc;
 
   AppRouter({required this.authBloc});
@@ -31,11 +27,6 @@ class AppRouter {
     refreshListenable: GoRouterRefreshStream(authBloc.stream),
     redirect: (context, state) {
   final authState = authBloc.state;
-
-  // SAFETY CHECK
-  if (authState.status == null) {
-    return AppRoutes.welcome;
-  }
 
   final isAuth = authState.status == AuthStatus.authenticated;
 
@@ -48,10 +39,21 @@ class AppRouter {
     return null;
   }
 
+  final settingsBox = Hive.box(AppConstants.settingsBox);
+  final hasCompletedLanguageSetup =
+      settingsBox.get(_languageSetupCompletedKey, defaultValue: false) as bool;
+  final unauthLanding = hasCompletedLanguageSetup
+      ? AppRoutes.login
+      : AppRoutes.welcome;
+
   // If NOT logged in → stay on welcome/login ONLY
   if (!isAuth) {
+    if (isOnWelcome && hasCompletedLanguageSetup) {
+      return AppRoutes.login;
+    }
+
     if (!isOnWelcome && !isOnLogin) {
-      return AppRoutes.welcome;
+      return unauthLanding;
     }
     return null;
   }

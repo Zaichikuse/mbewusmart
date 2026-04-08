@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'l10n/app_localizations.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
-import 'features/auth/presentation/bloc/auth_event.dart' as auth_events;
+import 'features/auth/presentation/bloc/auth_event.dart';
 import 'features/settings/presentation/bloc/settings_bloc.dart';
 import 'features/settings/presentation/bloc/settings_bloc.dart' as settings_events;
 import 'features/diagnosis/presentation/bloc/diagnosis_bloc.dart';
-import 'features/diagnosis/presentation/bloc/diagnosis_bloc.dart' as diagnosis_events;
 import 'features/location/presentation/bloc/location_bloc.dart';
 import 'features/alerts/presentation/bloc/alerts_bloc.dart';
-import 'features/alerts/presentation/bloc/alerts_bloc.dart' as alerts_events;
 import 'features/connectivity/presentation/bloc/connectivity_bloc.dart';
 import 'shared/routes/app_router.dart';
 import 'core/di/injection_container.dart' as di;
@@ -39,6 +36,7 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
   void initState() {
     super.initState();
     _authBloc = di.sl<AuthBloc>();
+    _authBloc.add(AuthCheckRequested());
     _settingsBloc = di.sl<SettingsBloc>()..add(settings_events.SettingsLoadRequested());
     _diagnosisBloc = di.sl<DiagnosisBloc>();
     _alertsBloc = di.sl<AlertsBloc>();
@@ -67,12 +65,7 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
       ],
       child: BlocBuilder<SettingsBloc, SettingsState>(
         builder: (context, settingsState) {
-          final String languageCode = settingsState is SettingsLoaded 
-              ? settingsState.languageCode 
-              : 'ny';
-          
           final locale = const Locale('en'); // always use English for Flutter system
-          final bool isChichewa = languageCode == 'ny'; // use this for your own translations
 
           return MaterialApp.router(
             title: 'MbewuSmart',
