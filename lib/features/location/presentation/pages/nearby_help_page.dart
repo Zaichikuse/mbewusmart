@@ -157,6 +157,19 @@ class NearbyHelpPage extends StatelessWidget {
                     backgroundColor: AppTheme.primaryGreen.withValues(alpha: 0.1),
                   ),
                 ),
+                const SizedBox(height: 8),
+                IconButton(
+                  onPressed: () => _openDirections(
+                    latitude: officer.latitude,
+                    longitude: officer.longitude,
+                    label: officer.name,
+                  ),
+                  icon: const Icon(Icons.navigation, color: AppTheme.primaryGreen),
+                  tooltip: isChichewa ? 'Tsegulani mapu' : 'Open directions',
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppTheme.primaryGreen.withValues(alpha: 0.1),
+                  ),
+                ),
               ],
             ),
           ],
@@ -241,6 +254,19 @@ class NearbyHelpPage extends StatelessWidget {
                     backgroundColor: AppTheme.accentOrange.withValues(alpha: 0.1),
                   ),
                 ),
+                const SizedBox(height: 8),
+                IconButton(
+                  onPressed: () => _openDirections(
+                    latitude: dealer.latitude,
+                    longitude: dealer.longitude,
+                    label: dealer.name,
+                  ),
+                  icon: const Icon(Icons.navigation, color: AppTheme.accentOrange),
+                  tooltip: isChichewa ? 'Tsegulani mapu' : 'Open directions',
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppTheme.accentOrange.withValues(alpha: 0.1),
+                  ),
+                ),
               ],
             ),
           ],
@@ -256,6 +282,20 @@ class NearbyHelpPage extends StatelessWidget {
     );
     if (await canLaunchUrl(launchUri)) {
       await launchUrl(launchUri);
+    }
+  }
+
+  Future<void> _openDirections({
+    required double latitude,
+    required double longitude,
+    required String label,
+  }) async {
+    final encodedLabel = Uri.encodeComponent(label);
+    final googleMapsUri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude&query=$encodedLabel&travelmode=driving',
+    );
+    if (await canLaunchUrl(googleMapsUri)) {
+      await launchUrl(googleMapsUri, mode: LaunchMode.externalApplication);
     }
   }
 }

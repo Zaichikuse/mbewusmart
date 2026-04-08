@@ -4,10 +4,14 @@
 *.log
 *.pyc
 *.swp
+.env
+.env.*
+!.env.example
 .buildlog/
 .history
 
-
+/.idea/*
+.idea/
 
 # Flutter repo-specific
 /bin/cache/

@@ -17,6 +17,7 @@ import '../../../auth/presentation/bloc/auth_state.dart'
 import '../../../alerts/presentation/bloc/alerts_bloc.dart';
 import '../../../alerts/domain/entities/alert.dart';
 import '../../../history/presentation/widgets/ai_assistant_tab.dart';
+import '../../../history/presentation/pages/history_page.dart';
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -275,9 +276,14 @@ class _ScanPageState extends State<ScanPage> {
 
       if (image != null && mounted) {
         context.read<LocationBloc>().add(LocationGetCurrent());
+        final authState = context.read<AuthBloc>().state;
 
         context.read<DiagnosisBloc>().add(
-          DiagnosisAnalyzeRequested(image.path, cropType: _selectedCrop),
+          DiagnosisAnalyzeRequested(
+            image.path,
+            cropType: _selectedCrop,
+            userId: authState.user?.id,
+          ),
         );
       }
     } catch (e) {
@@ -457,6 +463,8 @@ class _ScanPageState extends State<ScanPage> {
                         title: isChichewa ? 'Agro-Dealer' : 'Agro-Dealer',
                         name: nearestDealer.name,
                         phone: nearestDealer.phone,
+                        latitude: nearestDealer.latitude,
+                        longitude: nearestDealer.longitude,
                         icon: Icons.store,
                         color: AppTheme.primaryGreen,
                         onCall: () => _makePhoneCall(nearestDealer!.phone),
@@ -530,6 +538,8 @@ class _ScanPageState extends State<ScanPage> {
                             : 'Extension Officer',
                         name: nearestOfficer.name,
                         phone: nearestOfficer.phone,
+                        latitude: nearestOfficer.latitude,
+                        longitude: nearestOfficer.longitude,
                         icon: Icons.person,
                         color: AppTheme.accentOrange,
                         onCall: () => _makePhoneCall(nearestOfficer!.phone),
@@ -632,36 +642,14 @@ class _ScanPageState extends State<ScanPage> {
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: () {
-                        Navigator.pop(context);
-                        showModalBottomSheet(
-                          context: dialogContext,
-                          isScrollControlled: true,
-                          useSafeArea: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (sheetContext) {
-                            return DraggableScrollableSheet(
-                              initialChildSize: 0.82,
-                              minChildSize: 0.55,
-                              maxChildSize: 0.95,
-                              expand: false,
-                              builder: (context, controller) {
-                                return Container(
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.vertical(
-                                      top: Radius.circular(20),
-                                    ),
-                                  ),
-                                  child: AiAssistantTab(
-                                    isChichewa: isChichewa,
-                                    initialDiagnosis: result,
-                                    floatingMode: true,
-                                    onClose: () => Navigator.of(sheetContext).pop(),
-                                  ),
-                                );
-                              },
-                            );
-                          },
+                        _openAssistantForDiagnosis(
+                          hostContext: dialogContext,
+                          diagnosis: result,
+                          isChichewa: isChichewa,
+                          initialPrompt: _buildDefaultAssistantPrompt(
+                            diagnosis: result,
+                            isChichewa: isChichewa,
+                          ),
                         );
                       },
                       icon: const Icon(Icons.smart_toy),
@@ -694,19 +682,16 @@ class _ScanPageState extends State<ScanPage> {
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () {
-                            context.read<DiagnosisBloc>().add(
-                              DiagnosisSaveRequested(result),
-                            );
                             Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  isChichewa ? 'Salidwa!' : 'Saved!',
+                            Navigator.of(this.context).push(
+                              MaterialPageRoute(
+                                builder: (_) => HistoryPage(
+                                  initialDiagnosis: result,
                                 ),
                               ),
                             );
                           },
-                          child: Text(isChichewa ? 'Sunga' : 'Save'),
+                          child: Text(isChichewa ? 'Mbiri' : 'History'),
                         ),
                       ),
                     ],
@@ -827,6 +812,8 @@ class _ScanPageState extends State<ScanPage> {
     required String title,
     required String name,
     required String phone,
+    required double latitude,
+    required double longitude,
     required IconData icon,
     required Color color,
     required VoidCallback onCall,
@@ -862,11 +849,29 @@ class _ScanPageState extends State<ScanPage> {
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: onCall,
-              icon: const Icon(Icons.phone, size: 18),
-              label: Text(isChichewa ? 'Lowa fono' : 'Call Now'),
-              style: ElevatedButton.styleFrom(backgroundColor: color),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: onCall,
+                    icon: const Icon(Icons.phone, size: 18),
+                    label: Text(isChichewa ? 'Lowa fono' : 'Call Now'),
+                    style: ElevatedButton.styleFrom(backgroundColor: color),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openDirections(
+                      latitude: latitude,
+                      longitude: longitude,
+                      label: name,
+                    ),
+                    icon: const Icon(Icons.navigation, size: 18),
+                    label: Text(isChichewa ? 'Mapu' : 'Directions'),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -936,6 +941,103 @@ class _ScanPageState extends State<ScanPage> {
     final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(launchUri)) {
       await launchUrl(launchUri);
+    }
+  }
+
+  Future<void> _openDirections({
+    required double latitude,
+    required double longitude,
+    required String label,
+  }) async {
+    final encodedLabel = Uri.encodeComponent(label);
+    final googleMapsUri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude&query=$encodedLabel&travelmode=driving',
+    );
+    if (await canLaunchUrl(googleMapsUri)) {
+      await launchUrl(googleMapsUri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  void _openAssistantForDiagnosis({
+    required BuildContext hostContext,
+    required DiagnosisResult diagnosis,
+    required bool isChichewa,
+    String? initialPrompt,
+  }) {
+    Navigator.pop(hostContext);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.82,
+          minChildSize: 0.55,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, controller) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: AiAssistantTab(
+                isChichewa: isChichewa,
+                initialDiagnosis: diagnosis,
+                initialPrompt: initialPrompt,
+                floatingMode: true,
+                pageContext: isChichewa ? 'Zotsatira za scan' : 'Scan result',
+                onClose: () => Navigator.of(sheetContext).pop(),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _buildDefaultAssistantPrompt({
+    required DiagnosisResult diagnosis,
+    required bool isChichewa,
+  }) {
+    final diagnosisName = isChichewa
+        ? diagnosis.diagnosisNameChichewa
+        : diagnosis.diagnosisName;
+
+    if (diagnosis.confidence >= confidenceThreshold) {
+      return isChichewa
+          ? 'Ndafotokozerani zotsatira za "$diagnosisName" ndipo mundiuze zomwe ndiyenera kuchita tsopano, kuphatikiza mankhwala ndi njira zopewera.'
+          : 'Please explain this "$diagnosisName" result and tell me what I should do next, including treatment and prevention.';
+    }
+
+    return isChichewa
+        ? 'Zotsatira za "$diagnosisName" sizikutsimikiza bwino. Ndithandizeni kumvetsa zomwe ndiyenera kuchita tsopano ndi ngati ndilankhule ndi thandizo lapafupi.'
+        : 'This "$diagnosisName" result looks uncertain. Help me understand what to do next and whether I should contact nearby support.';
+  }
+
+  String _buildSupportPrompt({
+    required String targetRole,
+    required bool isChichewa,
+    String? contactName,
+  }) {
+    switch (targetRole) {
+      case 'extensionOfficer':
+        return isChichewa
+            ? 'Ndithandizeni kulankhula ndi Afesa Officer${contactName == null ? '' : ' $contactName'} pa zotsatira za scan yanga.'
+            : 'Help me continue this scan with the nearby Extension Officer${contactName == null ? '' : ' $contactName'}.';
+      case 'agroDealer':
+        return isChichewa
+            ? 'Ndithandizeni kupeza mankhwala oyenera ndi kulumikizana ndi agro-dealer${contactName == null ? '' : ' $contactName'}.'
+            : 'Help me find the right remedy and connect with the nearby agro-dealer${contactName == null ? '' : ' $contactName'}.';
+      case 'agricultureManager':
+        return isChichewa
+            ? 'Ndithandizeni kulemba report ya vuto ili kwa Agriculture Manager.'
+            : 'Help me prepare a short report for the Agriculture Manager about this scan result.';
+      default:
+        return isChichewa
+            ? 'Ndithandizeni ndi zotsatira za scan iyi.'
+            : 'Help me with this scan result.';
     }
   }
 
@@ -1189,7 +1291,7 @@ class _ScanPageState extends State<ScanPage> {
                         Navigator.pop(bottomSheetContext);
                         _startMessageConversation(
                           context,
-                          null,
+                          dealer,
                           'agroDealer',
                           isChichewa,
                         );
@@ -1272,7 +1374,7 @@ class _ScanPageState extends State<ScanPage> {
                 Navigator.pop(dialogContext);
                 _startMessageConversation(
                   context,
-                  null,
+                  result,
                   'agricultureManager',
                   isChichewa,
                 );
@@ -1302,13 +1404,40 @@ class _ScanPageState extends State<ScanPage> {
     String targetRole,
     bool isChichewa,
   ) {
-    // TODO: Implement conversation start with MessagingBloc
-    // For now, show a message
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isChichewa ? 'Kukambirana kuyamba...' : 'Starting conversation...',
+    final diagnosisState = context.read<DiagnosisBloc>().state;
+    final diagnosis = entity is DiagnosisResult
+        ? entity
+        : diagnosisState is DiagnosisSuccess
+        ? diagnosisState.result
+        : null;
+
+    final contactName = switch (entity) {
+      final ExtensionOfficer officer => officer.name,
+      final AgroDealer dealer => dealer.name,
+      _ => null,
+    };
+
+    if (diagnosis == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isChichewa
+                ? 'Yambani ndi kuscan kuti AI ikuthandizeni bwino.'
+                : 'Start with a scan result first so AI can help with context.',
+          ),
         ),
+      );
+      return;
+    }
+
+    _openAssistantForDiagnosis(
+      hostContext: context,
+      diagnosis: diagnosis,
+      isChichewa: isChichewa,
+      initialPrompt: _buildSupportPrompt(
+        targetRole: targetRole,
+        isChichewa: isChichewa,
+        contactName: contactName,
       ),
     );
   }

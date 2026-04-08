@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
+import 'package:uuid/uuid.dart';
 import '../../domain/entities/diagnosis_result.dart';
 import '../../domain/entities/crop_type.dart';
 import '../../domain/usecases/analyze_image_usecase.dart';
@@ -76,6 +77,7 @@ class DiagnosisError extends DiagnosisState {
 }
 
 class DiagnosisBloc extends Bloc<DiagnosisEvent, DiagnosisState> {
+  static const Uuid _uuid = Uuid();
   final AnalyzeImageUseCase analyzeImageUseCase;
   final GetHistoryUseCase getHistoryUseCase;
   final SaveDiagnosisUseCase saveDiagnosisUseCase;
@@ -99,9 +101,17 @@ class DiagnosisBloc extends Bloc<DiagnosisEvent, DiagnosisState> {
 
     final result = await analyzeImageUseCase(event.imagePath, event.cropType);
 
-    result.fold(
-      (failure) => emit(DiagnosisError(failure.message)),
-      (diagnosis) => emit(DiagnosisSuccess(diagnosis)),
+    await result.fold(
+      (failure) async => emit(DiagnosisError(failure.message)),
+      (diagnosis) async {
+        final enrichedDiagnosis = diagnosis.copyWith(
+          id: diagnosis.id.isEmpty ? _uuid.v4() : diagnosis.id,
+          userId: event.userId ?? diagnosis.userId,
+          timestamp: DateTime.now(),
+        );
+        await saveDiagnosisUseCase(enrichedDiagnosis);
+        emit(DiagnosisSuccess(enrichedDiagnosis));
+      },
     );
   }
 

@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 
+import '../constants/app_constants.dart';
 import '../../features/diagnosis/domain/entities/diagnosis_result.dart';
 import '../../features/diagnosis/domain/entities/crop_type.dart';
 import '../../features/location/domain/entities/agro_dealer.dart';
@@ -47,18 +49,43 @@ class AiChatMessage {
 }
 
 class AiAssistantService {
-  static const String _geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
-
   final Box cacheBox;
   String _currentUiContext = 'General';
 
   AiAssistantService({required this.cacheBox});
+
+  String get _geminiApiKey {
+    final envKey = dotenv.env['GEMINI_API_KEY']?.trim();
+    if (envKey != null && envKey.isNotEmpty) {
+      return envKey;
+    }
+    return const String.fromEnvironment('GEMINI_API_KEY');
+  }
 
   String _historyKeyForLanguage(String languageCode, {String? userId}) {
     final scopedUserId = (userId == null || userId.trim().isEmpty)
         ? 'guest'
         : userId.trim();
     return 'ai_chat_history_${scopedUserId}_$languageCode';
+  }
+
+  String _historyKeyForDiagnosis(
+    String languageCode, {
+    String? userId,
+    String? diagnosisId,
+  }) {
+    final baseKey = _historyKeyForLanguage(languageCode, userId: userId);
+    if (diagnosisId == null || diagnosisId.trim().isEmpty) {
+      return '${baseKey}_general';
+    }
+    return '${baseKey}_${diagnosisId.trim()}';
+  }
+
+  String _supportContextKey({String? userId}) {
+    final scopedUserId = (userId == null || userId.trim().isEmpty)
+        ? 'guest'
+        : userId.trim();
+    return '${AppConstants.aiSupportContextKey}_$scopedUserId';
   }
 
   String getLocalizedHeading(bool isChichewa) {
@@ -71,9 +98,17 @@ class AiAssistantService {
 
   String get currentUiContext => _currentUiContext;
 
-  List<AiChatMessage> loadHistory(String languageCode, {String? userId}) {
+  List<AiChatMessage> loadHistory(
+    String languageCode, {
+    String? userId,
+    String? diagnosisId,
+  }) {
     final dynamic raw = cacheBox.get(
-      _historyKeyForLanguage(languageCode, userId: userId),
+      _historyKeyForDiagnosis(
+        languageCode,
+        userId: userId,
+        diagnosisId: diagnosisId,
+      ),
     );
     if (raw is! List) return const [];
 
@@ -87,10 +122,15 @@ class AiAssistantService {
     List<AiChatMessage> messages,
     String languageCode, {
     String? userId,
+    String? diagnosisId,
   }) async {
     final data = messages.map((m) => m.toMap()).toList();
     await cacheBox.put(
-      _historyKeyForLanguage(languageCode, userId: userId),
+      _historyKeyForDiagnosis(
+        languageCode,
+        userId: userId,
+        diagnosisId: diagnosisId,
+      ),
       data,
     );
   }
@@ -121,22 +161,122 @@ class AiAssistantService {
   bool _isAutomationRequest(String prompt) {
     final p = prompt.toLowerCase();
     const patterns = [
+      'nearby',
+      'near me',
+      'nearest',
+      'closest',
+      'close by',
+      'local help',
       'nearby help',
       'near help',
       'closest help',
+      'support near',
       'agro dealer',
       'agrodealer',
+      'dealer near',
+      'nearby dealer',
+      'dealer',
       'extension officer',
       'locate dealer',
       'where to buy',
+      'where can i buy',
+      'where do i buy',
       'wogulitsa',
       'thandizo',
       'pafupi',
       'afesa',
       'agro',
+      'dealer yapafupi',
+      'thandizo lapafupi',
     ];
 
     return patterns.any(p.contains);
+  }
+
+  Future<void> saveSupportContext({
+    String? userId,
+    String? locationName,
+    ExtensionOfficer? nearestOfficer,
+    AgroDealer? nearestDealer,
+  }) async {
+    if ((locationName == null || locationName.trim().isEmpty) &&
+        nearestOfficer == null &&
+        nearestDealer == null) {
+      return;
+    }
+
+    await cacheBox.put(_supportContextKey(userId: userId), {
+      'locationName': locationName,
+      'nearestOfficer': nearestOfficer == null
+          ? null
+          : {
+              'id': nearestOfficer.id,
+              'name': nearestOfficer.name,
+              'phone': nearestOfficer.phone,
+              'district': nearestOfficer.district,
+              'area': nearestOfficer.area,
+              'latitude': nearestOfficer.latitude,
+              'longitude': nearestOfficer.longitude,
+              'epa': nearestOfficer.epa,
+              'region': nearestOfficer.region,
+            },
+      'nearestDealer': nearestDealer == null
+          ? null
+          : {
+              'id': nearestDealer.id,
+              'name': nearestDealer.name,
+              'phone': nearestDealer.phone,
+              'district': nearestDealer.district,
+              'area': nearestDealer.area,
+              'latitude': nearestDealer.latitude,
+              'longitude': nearestDealer.longitude,
+              'products': nearestDealer.products,
+              'epa': nearestDealer.epa,
+              'region': nearestDealer.region,
+            },
+    });
+  }
+
+  Map<String, dynamic>? _loadSupportContext({String? userId}) {
+    final raw = cacheBox.get(_supportContextKey(userId: userId));
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return null;
+  }
+
+  ExtensionOfficer? _restoreOfficer(dynamic raw) {
+    if (raw is! Map) return null;
+    final map = Map<String, dynamic>.from(raw);
+    return ExtensionOfficer(
+      id: map['id'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      phone: map['phone'] as String? ?? '',
+      district: map['district'] as String? ?? '',
+      area: map['area'] as String?,
+      latitude: (map['latitude'] as num?)?.toDouble() ?? 0,
+      longitude: (map['longitude'] as num?)?.toDouble() ?? 0,
+      epa: map['epa'] as String?,
+      region: map['region'] as String?,
+    );
+  }
+
+  AgroDealer? _restoreDealer(dynamic raw) {
+    if (raw is! Map) return null;
+    final map = Map<String, dynamic>.from(raw);
+    return AgroDealer(
+      id: map['id'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      phone: map['phone'] as String? ?? '',
+      district: map['district'] as String? ?? '',
+      area: map['area'] as String?,
+      latitude: (map['latitude'] as num?)?.toDouble() ?? 0,
+      longitude: (map['longitude'] as num?)?.toDouble() ?? 0,
+      products:
+          (map['products'] as List?)?.map((e) => '$e').toList() ?? const [],
+      epa: map['epa'] as String?,
+      region: map['region'] as String?,
+    );
   }
 
   String _buildAutomationReply({
@@ -205,24 +345,46 @@ class AiAssistantService {
     required bool isChichewa,
     required List<AiChatMessage> history,
     DiagnosisResult? diagnosis,
+    String? userId,
     ExtensionOfficer? nearestOfficer,
     AgroDealer? nearestDealer,
     String? locationName,
     String? pageContext,
   }) async {
-    if (_isAutomationRequest(prompt)) {
-      return _buildAutomationReply(
-        isChichewa: isChichewa,
+    if (locationName != null ||
+        nearestOfficer != null ||
+        nearestDealer != null) {
+      await saveSupportContext(
+        userId: userId,
         locationName: locationName,
         nearestOfficer: nearestOfficer,
         nearestDealer: nearestDealer,
       );
     }
 
+    final cachedSupport = _loadSupportContext(userId: userId);
+    final effectiveLocationName =
+        (locationName != null && locationName.trim().isNotEmpty)
+        ? locationName
+        : cachedSupport?['locationName'] as String?;
+    final effectiveNearestOfficer =
+        nearestOfficer ?? _restoreOfficer(cachedSupport?['nearestOfficer']);
+    final effectiveNearestDealer =
+        nearestDealer ?? _restoreDealer(cachedSupport?['nearestDealer']);
+
+    if (_isAutomationRequest(prompt)) {
+      return _buildAutomationReply(
+        isChichewa: isChichewa,
+        locationName: effectiveLocationName,
+        nearestOfficer: effectiveNearestOfficer,
+        nearestDealer: effectiveNearestDealer,
+      );
+    }
+
     if (_geminiApiKey.isEmpty) {
       return isChichewa
-          ? 'GEMINI_API_KEY sinalembedwe. Yambitsani app ndi --dart-define=GEMINI_API_KEY=your_key kuti AI iyankhe mokwanira.'
-          : 'GEMINI_API_KEY is not configured. Start the app with --dart-define=GEMINI_API_KEY=your_key to enable full AI answers.';
+          ? 'GEMINI_API_KEY sinalembedwe mu .env. Onetsetsani kuti fayilo ya .env ili ndi key yeniyeni kenako yambitsaninso app.'
+          : 'GEMINI_API_KEY is not configured in .env. Add the key to your .env file and restart the app.';
     }
 
     final recentHistory = history.length > 8
@@ -251,9 +413,9 @@ Diagnosis context:
     final supportContext =
         '''
 Nearby support:
-- Location: ${locationName ?? 'Unknown'}
-- Agro-dealer: ${nearestDealer?.name ?? 'Unknown'} (${nearestDealer?.phone ?? 'No phone'})
-- Extension officer: ${nearestOfficer?.name ?? 'Unknown'} (${nearestOfficer?.phone ?? 'No phone'})
+- Location: ${effectiveLocationName ?? 'Unknown'}
+- Agro-dealer: ${effectiveNearestDealer?.name ?? 'Unknown'} (${effectiveNearestDealer?.phone ?? 'No phone'})
+- Extension officer: ${effectiveNearestOfficer?.name ?? 'Unknown'} (${effectiveNearestOfficer?.phone ?? 'No phone'})
 ''';
 
     final uiContext = pageContext ?? _currentUiContext;

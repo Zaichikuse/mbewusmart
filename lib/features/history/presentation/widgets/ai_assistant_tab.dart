@@ -15,6 +15,7 @@ class AiAssistantTab extends StatefulWidget {
   final bool floatingMode;
   final VoidCallback? onClose;
   final String? pageContext;
+  final String? initialPrompt;
 
   const AiAssistantTab({
     super.key,
@@ -23,6 +24,7 @@ class AiAssistantTab extends StatefulWidget {
     this.floatingMode = false,
     this.onClose,
     this.pageContext,
+    this.initialPrompt,
   });
 
   @override
@@ -40,6 +42,7 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
   late final String _languageCode;
   String? _currentUserId;
   String? _currentUserName;
+  bool _didSendInitialPrompt = false;
 
   @override
   void initState() {
@@ -53,6 +56,7 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
     _messages = _assistantService.loadHistory(
       _languageCode,
       userId: _currentUserId,
+      diagnosisId: _selectedDiagnosis?.id,
     );
 
     if (_messages.isEmpty) {
@@ -94,6 +98,14 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
         DiagnosisHistoryRequested(userId: _currentUserId),
       );
     }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _didSendInitialPrompt) return;
+      final prompt = widget.initialPrompt?.trim();
+      if (prompt == null || prompt.isEmpty) return;
+      _didSendInitialPrompt = true;
+      _sendPrompt(prompt);
+    });
   }
 
   @override
@@ -216,6 +228,11 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
             onChanged: (id) {
               setState(() {
                 _selectedDiagnosis = history.firstWhere((d) => d.id == id);
+                _messages = _assistantService.loadHistory(
+                  _languageCode,
+                  userId: _currentUserId,
+                  diagnosisId: _selectedDiagnosis?.id,
+                );
               });
             },
           ),
@@ -400,6 +417,7 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
       isChichewa: widget.isChichewa,
       history: _messages,
       diagnosis: _selectedDiagnosis,
+      userId: _currentUserId,
       nearestDealer: locationState is LocationLoaded
           ? locationState.nearestDealer
           : null,
@@ -431,6 +449,7 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
       _messages,
       _languageCode,
       userId: _currentUserId,
+      diagnosisId: _selectedDiagnosis?.id,
     );
     _scrollToBottom();
   }

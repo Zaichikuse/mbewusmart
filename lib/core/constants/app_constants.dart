@@ -18,6 +18,7 @@ class AppConstants {
   static const String lastSyncKey = 'last_sync';
   static const String userKey = 'current_user';
   static const String aiChatHistoryKey = 'ai_chat_history';
+  static const String aiSupportContextKey = 'ai_support_context';
 
   // API / Firebase
   static const String firebaseProjectId = 'mbewusmart-app';

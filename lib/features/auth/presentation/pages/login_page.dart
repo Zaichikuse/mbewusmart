@@ -6,7 +6,6 @@ import '../../domain/entities/user.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
-import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 
 class LoginPage extends StatefulWidget {
@@ -29,7 +28,9 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final isChichewa = context.watch<SettingsBloc>().state is SettingsLoaded
-        ? (context.watch<SettingsBloc>().state as SettingsLoaded).languageCode == 'ny'
+        ? (context.watch<SettingsBloc>().state as SettingsLoaded)
+                  .languageCode ==
+              'ny'
         : true;
 
     return Scaffold(
@@ -42,11 +43,7 @@ class _LoginPageState extends State<LoginPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 40),
-                Icon(
-                  Icons.eco,
-                  size: 80,
-                  color: AppTheme.primaryGreen,
-                ),
+                Icon(Icons.eco, size: 80, color: AppTheme.primaryGreen),
                 const SizedBox(height: 16),
                 Text(
                   AppUtils.getGreeting(context, isChichewa),
@@ -62,13 +59,21 @@ class _LoginPageState extends State<LoginPage> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 40),
-                
+
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _buildLanguageChip(isChichewa, 'ny', isChichewa ? 'Chichewa' : 'Chichewa'),
+                    _buildLanguageChip(
+                      isChichewa,
+                      'ny',
+                      isChichewa ? 'Chichewa' : 'Chichewa',
+                    ),
                     const SizedBox(width: 8),
-                    _buildLanguageChip(!isChichewa, 'en', isChichewa ? 'English' : 'English'),
+                    _buildLanguageChip(
+                      !isChichewa,
+                      'en',
+                      isChichewa ? 'English' : 'English',
+                    ),
                   ],
                 ),
                 const SizedBox(height: 32),
@@ -82,23 +87,31 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return isChichewa ? 'Fani ili yofunika' : 'This field is required';
+                        return isChichewa
+                            ? 'Fani ili yofunika'
+                            : 'This field is required';
                       }
                       return null;
                     },
                   ),
                   const SizedBox(height: 16),
-                  
+
                   DropdownButtonFormField<UserRole>(
                     initialValue: _selectedRole,
                     decoration: InputDecoration(
-                      labelText: isChichewa ? 'Sankha Umodzi Wanu' : 'Select Your Role',
+                      labelText: isChichewa
+                          ? 'Sankha Umodzi Wanu'
+                          : 'Select Your Role',
                       prefixIcon: const Icon(Icons.work),
                     ),
                     items: UserRole.values.map((role) {
                       return DropdownMenuItem(
                         value: role,
-                        child: Text(isChichewa ? role.displayNameChichewa : role.displayName),
+                        child: Text(
+                          isChichewa
+                              ? role.displayNameChichewa
+                              : role.displayName,
+                        ),
                       );
                     }).toList(),
                     onChanged: (value) {
@@ -108,11 +121,13 @@ class _LoginPageState extends State<LoginPage> {
                     },
                   ),
                   const SizedBox(height: 16),
-                  
+
                   TextFormField(
                     controller: _nationalIdController,
                     decoration: InputDecoration(
-                      labelText: isChichewa ? 'ID Yoyenera (Osiya)' : 'National ID (Optional)',
+                      labelText: isChichewa
+                          ? 'ID Yoyenera (Osiya)'
+                          : 'National ID (Optional)',
                       prefixIcon: const Icon(Icons.badge),
                     ),
                   ),
@@ -128,7 +143,9 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return isChichewa ? 'Fani ili yofunika' : 'This field is required';
+                      return isChichewa
+                          ? 'Fani ili yofunika'
+                          : 'This field is required';
                     }
                     return null;
                   },
@@ -141,7 +158,7 @@ class _LoginPageState extends State<LoginPage> {
                   maxLength: 4,
                   obscureText: true,
                   decoration: InputDecoration(
-                    labelText: isChichewa 
+                    labelText: isChichewa
                         ? (_isLogin ? 'Lowa PIN' : 'PIN (Osiya)')
                         : (_isLogin ? 'Enter PIN' : 'PIN (Optional)'),
                     prefixIcon: const Icon(Icons.lock),
@@ -160,8 +177,11 @@ class _LoginPageState extends State<LoginPage> {
                       prefixIcon: const Icon(Icons.lock_outline),
                     ),
                     validator: (value) {
-                      if (_pinController.text.isNotEmpty && value != _pinController.text) {
-                        return isChichewa ? 'PIN zosiyana' : 'PINs do not match';
+                      if (_pinController.text.isNotEmpty &&
+                          value != _pinController.text) {
+                        return isChichewa
+                            ? 'PIN zosiyana'
+                            : 'PINs do not match';
                       }
                       return null;
                     },
@@ -181,16 +201,20 @@ class _LoginPageState extends State<LoginPage> {
                   },
                   builder: (context, state) {
                     return ElevatedButton(
-                      onPressed: state.status == AuthStatus.loading ? null : _submit,
+                      onPressed: state.status == AuthStatus.loading
+                          ? null
+                          : _submit,
                       child: state.status == AuthStatus.loading
                           ? const SizedBox(
                               height: 20,
                               width: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : Text(_isLogin 
-                              ? (isChichewa ? 'Lowani' : 'Login')
-                              : (isChichewa ? 'Lembani' : 'Sign Up')),
+                          : Text(
+                              _isLogin
+                                  ? (isChichewa ? 'Lowani' : 'Login')
+                                  : (isChichewa ? 'Lembani' : 'Sign Up'),
+                            ),
                     );
                   },
                 ),
@@ -205,8 +229,12 @@ class _LoginPageState extends State<LoginPage> {
                   },
                   child: Text(
                     _isLogin
-                        ? (isChichewa ? 'Palibe account? Lembani' : "Don't have an account? Sign Up")
-                        : (isChichewa ? 'Mali account? Lowani' : 'Already have an account? Login'),
+                        ? (isChichewa
+                              ? 'Palibe account? Lembani'
+                              : "Don't have an account? Sign Up")
+                        : (isChichewa
+                              ? 'Mali account? Lowani'
+                              : 'Already have an account? Login'),
                   ),
                 ),
               ],
@@ -235,18 +263,24 @@ class _LoginPageState extends State<LoginPage> {
   void _submit() {
     if (_formKey.currentState!.validate()) {
       if (_isLogin) {
-        context.read<AuthBloc>().add(AuthLoginRequested(
-          phoneNumber: _phoneController.text,
-          pin: _pinController.text.isNotEmpty ? _pinController.text : null,
-        ));
+        context.read<AuthBloc>().add(
+          AuthLoginRequested(
+            phoneNumber: _phoneController.text,
+            pin: _pinController.text.isNotEmpty ? _pinController.text : null,
+          ),
+        );
       } else {
-        context.read<AuthBloc>().add(AuthRegisterRequested(
-          fullName: _fullNameController.text,
-          phoneNumber: _phoneController.text,
-          nationalId: _nationalIdController.text.isNotEmpty ? _nationalIdController.text : null,
-          role: _selectedRole,
-          pin: _pinController.text.isNotEmpty ? _pinController.text : null,
-        ));
+        context.read<AuthBloc>().add(
+          AuthRegisterRequested(
+            fullName: _fullNameController.text,
+            phoneNumber: _phoneController.text,
+            nationalId: _nationalIdController.text.isNotEmpty
+                ? _nationalIdController.text
+                : null,
+            role: _selectedRole,
+            pin: _pinController.text.isNotEmpty ? _pinController.text : null,
+          ),
+        );
       }
     }
   }

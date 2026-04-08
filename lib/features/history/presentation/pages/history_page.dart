@@ -61,10 +61,6 @@ class _HistoryPageState extends State<HistoryPage>
         ? settingsState.languageCode == 'ny'
         : true;
     final userId = context.read<AuthBloc>().state.user?.id;
-    final chatMessages = _assistantService.loadHistory(
-      isChichewa ? 'ny' : 'en',
-      userId: userId,
-    );
 
     return Scaffold(
       appBar: AppBar(
@@ -83,14 +79,14 @@ class _HistoryPageState extends State<HistoryPage>
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildHistoryTab(isChichewa, chatMessages),
+          _buildHistoryTab(isChichewa, userId),
           _buildReportsTab(isChichewa),
         ],
       ),
     );
   }
 
-  Widget _buildHistoryTab(bool isChichewa, List<AiChatMessage> chatMessages) {
+  Widget _buildHistoryTab(bool isChichewa, String? userId) {
     return BlocBuilder<DiagnosisBloc, DiagnosisState>(
       builder: (context, state) {
         if (state is DiagnosisLoading) {
@@ -116,7 +112,7 @@ class _HistoryPageState extends State<HistoryPage>
               itemCount: filteredHistory.length,
               itemBuilder: (context, index) {
                 final result = filteredHistory[index];
-                return _buildHistoryCard(result, isChichewa, chatMessages);
+                return _buildHistoryCard(result, isChichewa, userId);
               },
             ),
           );
@@ -489,8 +485,13 @@ class _HistoryPageState extends State<HistoryPage>
   Widget _buildHistoryCard(
     DiagnosisResult result,
     bool isChichewa,
-    List<AiChatMessage> chatMessages,
+    String? userId,
   ) {
+    final chatMessages = _assistantService.loadHistory(
+      isChichewa ? 'ny' : 'en',
+      userId: userId,
+      diagnosisId: result.id,
+    );
     final linkedMessages = chatMessages
         .where((m) => m.diagnosisId == result.id)
         .toList();
