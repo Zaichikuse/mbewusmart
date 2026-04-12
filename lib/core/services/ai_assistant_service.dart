@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:hive/hive.dart';
@@ -54,12 +56,35 @@ class AiAssistantService {
 
   AiAssistantService({required this.cacheBox});
 
-  String get _geminiApiKey {
-    final envKey = dotenv.env['GEMINI_API_KEY']?.trim();
-    if (envKey != null && envKey.isNotEmpty) {
-      return envKey;
+  String _sanitizeApiKey(String? raw) {
+    if (raw == null) return '';
+    var value = raw.trim();
+
+    // Handle .env values wrapped in quotes.
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.substring(1, value.length - 1).trim();
     }
-    return const String.fromEnvironment('GEMINI_API_KEY');
+
+    return value;
+  }
+
+  String get _geminiApiKey {
+    final candidates = [
+      dotenv.env['GEMINI_API_KEY'],
+      dotenv.env['GOOGLE_API_KEY'],
+      const String.fromEnvironment('GEMINI_API_KEY'),
+      const String.fromEnvironment('GOOGLE_API_KEY'),
+    ];
+
+    for (final candidate in candidates) {
+      final sanitized = _sanitizeApiKey(candidate);
+      if (sanitized.isNotEmpty) {
+        return sanitized;
+      }
+    }
+
+    return '';
   }
 
   String _historyKeyForLanguage(String languageCode, {String? userId}) {
@@ -172,11 +197,22 @@ class AiAssistantService {
       'closest help',
       'support near',
       'agro dealer',
+      'agro-dealer',
+      'agro dealers',
+      'agro-dealers',
+      'agrodealers',
       'agrodealer',
       'dealer near',
       'nearby dealer',
+      'nearby agrodealer',
+      'nearby agro-dealer',
+      'nearby agro dealers',
+      'nearby agro-dealers',
       'dealer',
+      'help near me',
+      'support near me',
       'extension officer',
+      'extension worker',
       'locate dealer',
       'where to buy',
       'where can i buy',
@@ -312,6 +348,11 @@ class AiAssistantService {
       buffer.writeln(
         'Mungagwiritse ntchito ma nambala awa kuti mulumikizane mwachangu.',
       );
+      if (nearestDealer == null && nearestOfficer == null) {
+        buffer.writeln(
+          'Ngati izi zikusonyeza zopanda zotsatira, onetsetsani kuti location permission yalolezedwa kenako yesaninso.',
+        );
+      }
     } else {
       buffer.writeln('Here is nearby support for your location:');
       if (locationName != null && locationName.isNotEmpty) {
@@ -335,6 +376,11 @@ class AiAssistantService {
       }
 
       buffer.writeln('Use these contacts to get help quickly.');
+      if (nearestDealer == null && nearestOfficer == null) {
+        buffer.writeln(
+          'If nothing is listed, allow location permission and retry so we can fetch nearby support.',
+        );
+      }
     }
 
     return buffer.toString().trim();
@@ -387,10 +433,7 @@ class AiAssistantService {
           : 'GEMINI_API_KEY is not configured in .env. Add the key to your .env file and restart the app.';
     }
 
-    final recentHistory = history.length > 8
-        ? history.sublist(history.length - 8)
-        : history;
-    final historyText = recentHistory
+    final historyText = history
         .map((m) => '${m.role.toUpperCase()}: ${m.text}')
         .join('\n');
 
@@ -424,6 +467,7 @@ Nearby support:
         '''
 You are an agricultural assistant for Malawi farmers.
 $languageInstruction
+Always reply in the same language as the user\'s latest question unless the user explicitly asks to switch language.
 If asked about nearby help or agro-dealers, use the support context provided.
 Give safe farming guidance only.
 
@@ -438,34 +482,72 @@ User question:
 $prompt
 ''';
 
-    final uri = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$_geminiApiKey',
+    final uri = Uri.https(
+      'generativelanguage.googleapis.com',
+      '/v1beta/models/gemini-1.5-flash:generateContent',
     );
 
-    final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'contents': [
-              {
-                'parts': [
-                  {'text': userPrompt},
-                ],
-              },
-            ],
-            'generationConfig': {'temperature': 0.4, 'maxOutputTokens': 450},
-          }),
-        )
-        .timeout(const Duration(seconds: 25));
+    http.Response response;
+    try {
+      response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': _geminiApiKey,
+            },
+            body: jsonEncode({
+              'contents': [
+                {
+                  'parts': [
+                    {'text': userPrompt},
+                  ],
+                },
+              ],
+              'generationConfig': {'temperature': 0.4, 'maxOutputTokens': 450},
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
+    } on TimeoutException {
+      return isChichewa
+          ? 'AI siyikupezeka pano chifukwa request yatenga nthawi yaitali. Yesaninso pangono.'
+          : 'AI is taking too long to respond right now. Please try again shortly.';
+    } on SocketException {
+      return isChichewa
+          ? 'Palibe intaneti kapena DNS yalephera. Onani network yanu kenako yesaninso.'
+          : 'No internet connection or DNS lookup failed. Check your network and try again.';
+    } catch (_) {
+      return isChichewa
+          ? 'AI yalephera pano chifukwa cha vuto la network. Yesaninso pangono.'
+          : 'AI request failed due to a network error. Please try again shortly.';
+    }
 
     if (response.statusCode >= 400) {
+      final status = response.statusCode;
+      if (status == 401 || status == 403) {
+        return isChichewa
+            ? 'Gemini API key yanu ikuwoneka ngati yosavomerezeka kapena yatsekedwa. Onani GEMINI_API_KEY mu .env.'
+            : 'Your Gemini API key appears invalid or blocked. Check GEMINI_API_KEY in .env.';
+      }
+      if (status == 429) {
+        return isChichewa
+            ? 'Mafunso achuluka kwambiri pakadali pano (rate limit). Dikirani pangono kenako yesaninso.'
+            : 'Too many AI requests right now (rate limited). Wait a moment and try again.';
+      }
       return isChichewa
           ? 'AI yalephera kuyankha pano. Yesani kachiwiri pangono.'
           : 'AI could not answer right now. Please try again shortly.';
     }
 
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    Map<String, dynamic> json;
+    try {
+      json = jsonDecode(response.body) as Map<String, dynamic>;
+    } on FormatException {
+      return isChichewa
+          ? 'AI yabweretsa yankho losamveka. Yesaninso.'
+          : 'AI returned an unreadable response. Please try again.';
+    }
+
     final candidates = (json['candidates'] as List<dynamic>? ?? const []);
     if (candidates.isEmpty) {
       return isChichewa

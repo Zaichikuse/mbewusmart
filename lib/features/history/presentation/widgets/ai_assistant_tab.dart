@@ -44,6 +44,8 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
   String? _currentUserName;
   bool _didSendInitialPrompt = false;
 
+  static const Duration _locationWaitTimeout = Duration(seconds: 8);
+
   @override
   void initState() {
     super.initState();
@@ -52,22 +54,14 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
     final authState = context.read<AuthBloc>().state;
     _currentUserId = authState.user?.id;
     _currentUserName = authState.user?.fullName;
-    _selectedDiagnosis = widget.initialDiagnosis;
+    _selectedDiagnosis = _resolveDiagnosisContext();
     _messages = _assistantService.loadHistory(
       _languageCode,
       userId: _currentUserId,
-      diagnosisId: _selectedDiagnosis?.id,
     );
 
     if (_messages.isEmpty) {
-      final diagnosisState = context.read<DiagnosisBloc>().state;
-      final latestDiagnosis = diagnosisState is DiagnosisHistoryLoaded
-          ? diagnosisState.history
-                .where((d) =>
-                    _currentUserId == null || d.userId == _currentUserId)
-                .cast<DiagnosisResult?>()
-                .firstWhere((d) => d != null, orElse: () => null)
-          : null;
+      final latestDiagnosis = _selectedDiagnosis;
 
       _messages = [
         AiChatMessage(
@@ -120,7 +114,6 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
     final chatColumn = Column(
       children: [
         _buildHeader(),
-        _buildDiagnosisPicker(),
         Expanded(child: _buildMessages()),
         _buildQuickActions(),
         _buildInputBar(),
@@ -131,10 +124,7 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
       return chatColumn;
     }
 
-    return Container(
-      color: Colors.white,
-      child: chatColumn,
-    );
+    return Container(color: Colors.white, child: chatColumn);
   }
 
   Widget _buildHeader() {
@@ -191,54 +181,25 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
     );
   }
 
-  Widget _buildDiagnosisPicker() {
-    return BlocBuilder<DiagnosisBloc, DiagnosisState>(
-      builder: (context, state) {
-        if (state is! DiagnosisHistoryLoaded || state.history.isEmpty) {
-          return const SizedBox.shrink();
-        }
+  DiagnosisResult? _resolveDiagnosisContext() {
+    if (widget.initialDiagnosis != null) {
+      return widget.initialDiagnosis;
+    }
 
-        final history = state.history;
-        _selectedDiagnosis ??= widget.initialDiagnosis ?? history.first;
+    final diagnosisState = context.read<DiagnosisBloc>().state;
+    if (diagnosisState is! DiagnosisHistoryLoaded) {
+      return null;
+    }
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: DropdownButtonFormField<String>(
-            initialValue: _selectedDiagnosis?.id,
-            decoration: InputDecoration(
-              labelText: widget.isChichewa
-                  ? 'Sankhani zotsatira'
-                  : 'Select diagnosis context',
-              border: const OutlineInputBorder(),
-              isDense: true,
-            ),
-            items: history
-                .map(
-                  (d) => DropdownMenuItem<String>(
-                    value: d.id,
-                    child: Text(
-                      widget.isChichewa
-                          ? d.diagnosisNameChichewa
-                          : d.diagnosisName,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: (id) {
-              setState(() {
-                _selectedDiagnosis = history.firstWhere((d) => d.id == id);
-                _messages = _assistantService.loadHistory(
-                  _languageCode,
-                  userId: _currentUserId,
-                  diagnosisId: _selectedDiagnosis?.id,
-                );
-              });
-            },
-          ),
-        );
-      },
-    );
+    final userHistory = diagnosisState.history
+        .where((d) => _currentUserId == null || d.userId == _currentUserId)
+        .toList();
+    if (userHistory.isEmpty) {
+      return null;
+    }
+
+    userHistory.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return userHistory.first;
   }
 
   Widget _buildMessages() {
@@ -266,7 +227,7 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
           return const Padding(
             padding: EdgeInsets.all(12),
             child: Align(
-              alignment: Alignment.centerLeft,
+              alignment: Alignment.centerRight,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
           );
@@ -274,20 +235,56 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
 
         final message = _messages[index];
         final isUser = message.role == 'user';
+        final isAssistant = !isUser;
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(
-            mainAxisAlignment: isUser
+            mainAxisAlignment: isAssistant
                 ? MainAxisAlignment.end
                 : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (!isUser)
+              if (isUser)
                 Container(
                   width: 28,
                   height: 28,
                   margin: const EdgeInsets.only(right: 8, top: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.textMuted.withValues(alpha: 0.9),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isAssistant ? AppTheme.primaryGreen : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isAssistant
+                          ? AppTheme.primaryGreen
+                          : AppTheme.primaryGreen.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Text(
+                    message.text,
+                    style: TextStyle(
+                      color: isAssistant ? Colors.white : AppTheme.textDark,
+                    ),
+                  ),
+                ),
+              ),
+              if (isAssistant)
+                Container(
+                  width: 28,
+                  height: 28,
+                  margin: const EdgeInsets.only(left: 8, top: 2),
                   decoration: const BoxDecoration(
                     color: AppTheme.primaryGreen,
                     shape: BoxShape.circle,
@@ -298,26 +295,6 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
                     size: 16,
                   ),
                 ),
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isUser ? AppTheme.primaryGreen : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isUser
-                          ? AppTheme.primaryGreen
-                          : AppTheme.primaryGreen.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  child: Text(
-                    message.text,
-                    style: TextStyle(
-                      color: isUser ? Colors.white : AppTheme.textDark,
-                    ),
-                  ),
-                ),
-              ),
             ],
           ),
         );
@@ -334,25 +311,58 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
         children: [
           ActionChip(
             label: Text(widget.isChichewa ? 'Pafupi thandizo' : 'Nearby help'),
-            onPressed: () => _sendPrompt(
-              widget.isChichewa
-                  ? 'Ndithandizeni kupeza thandizo lapafupi'
-                  : 'Help me locate nearby support',
-            ),
+            onPressed: _isLoading ? null : _sendNearbyHelp,
           ),
           ActionChip(
             label: Text(
               widget.isChichewa ? 'Agro-dealer pafupi' : 'Nearby agro-dealer',
             ),
-            onPressed: () => _sendPrompt(
-              widget.isChichewa
-                  ? 'Kodi pali agro-dealer wapafupi?'
-                  : 'Is there a nearby agro-dealer?',
-            ),
+            onPressed: _isLoading ? null : _sendNearbyDealerHelp,
           ),
         ],
       ),
     );
+  }
+
+  Future<LocationState> _ensureFreshLocationState() async {
+    final locationBloc = context.read<LocationBloc>();
+    final current = locationBloc.state;
+    if (current is LocationLoaded) {
+      return current;
+    }
+
+    locationBloc.add(LocationGetCurrent());
+
+    try {
+      final next = await locationBloc.stream
+          .firstWhere(
+            (state) => state is LocationLoaded || state is LocationError,
+          )
+          .timeout(_locationWaitTimeout);
+      return next;
+    } catch (_) {
+      return locationBloc.state;
+    }
+  }
+
+  Future<void> _sendNearbyHelp() async {
+    final locationState = await _ensureFreshLocationState();
+
+    final prompt = widget.isChichewa
+        ? 'Ndithandizeni ndi thandizo lapafupi potengera malo anga. Nditchulireni agro-dealer ndi afesa officer omwe ali pafupi, ma phone awo, ndi sitepe yoyamba yomwe ndichite tsopano.'
+        : 'Using my current location, give me nearby support. List the nearest agro-dealer and extension officer, their phone numbers, and the first action I should take now.';
+
+    await _sendPrompt(prompt, forcedLocationState: locationState);
+  }
+
+  Future<void> _sendNearbyDealerHelp() async {
+    final locationState = await _ensureFreshLocationState();
+
+    final prompt = widget.isChichewa
+        ? 'Ndipezeni agro-dealer wapafupi pogwiritsa ntchito malo anga. Perekani dzina, dera, nambala ya foni, ndi mankhwala oyenera kutengera zotsatira zanga.'
+        : 'Find the nearest agro-dealer using my current location. Provide name, district, phone number, and the most relevant remedy based on my latest diagnosis context.';
+
+    await _sendPrompt(prompt, forcedLocationState: locationState);
   }
 
   Widget _buildInputBar() {
@@ -390,7 +400,10 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
     );
   }
 
-  Future<void> _sendPrompt(String text) async {
+  Future<void> _sendPrompt(
+    String text, {
+    LocationState? forcedLocationState,
+  }) async {
     final prompt = text.trim();
     if (prompt.isEmpty || _isLoading) return;
 
@@ -399,7 +412,7 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
       text: prompt,
       timestamp: DateTime.now(),
       languageCode: _languageCode,
-      diagnosisId: _selectedDiagnosis?.id,
+      diagnosisId: _resolveDiagnosisContext()?.id,
     );
 
     setState(() {
@@ -410,13 +423,14 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
 
     _scrollToBottom();
 
-    final locationState = context.read<LocationBloc>().state;
+    final locationState =
+        forcedLocationState ?? context.read<LocationBloc>().state;
 
     final aiText = await _assistantService.askQuestion(
       prompt: prompt,
       isChichewa: widget.isChichewa,
       history: _messages,
-      diagnosis: _selectedDiagnosis,
+      diagnosis: _resolveDiagnosisContext(),
       userId: _currentUserId,
       nearestDealer: locationState is LocationLoaded
           ? locationState.nearestDealer
@@ -435,7 +449,7 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
       text: aiText,
       timestamp: DateTime.now(),
       languageCode: _languageCode,
-      diagnosisId: _selectedDiagnosis?.id,
+      diagnosisId: _resolveDiagnosisContext()?.id,
     );
 
     if (!mounted) return;
@@ -449,7 +463,6 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
       _messages,
       _languageCode,
       userId: _currentUserId,
-      diagnosisId: _selectedDiagnosis?.id,
     );
     _scrollToBottom();
   }

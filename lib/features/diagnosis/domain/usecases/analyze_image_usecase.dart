@@ -7,10 +7,13 @@ import '../../domain/entities/crop_type.dart';
 class AnalyzeImageUseCase {
   final Random _random = Random();
 
-  Future<Either<Failure, DiagnosisResult>> call(String imagePath, CropType cropType) async {
+  Future<Either<Failure, DiagnosisResult>> call(
+    String imagePath,
+    CropType cropType,
+  ) async {
     try {
       await Future.delayed(const Duration(seconds: 2));
-      
+
       return Right(_getCropSpecificResult(imagePath, cropType));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
@@ -19,7 +22,7 @@ class AnalyzeImageUseCase {
 
   DiagnosisResult _getCropSpecificResult(String imagePath, CropType cropType) {
     final diagnosisData = _getDiagnosisForCrop(cropType);
-    
+
     return DiagnosisResult(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       imagePath: imagePath,
@@ -58,7 +61,8 @@ class AnalyzeImageUseCase {
         nameChichewa: 'Mgamula Yauchipuka',
         confidence: 0.85,
         severity: Severity.low,
-        recommendation: 'Your maize crop is healthy! Continue with regular watering and monitoring.',
+        recommendation:
+            'Your maize crop is healthy! Continue with regular watering and monitoring.',
         treatment: null,
         prevention: 'Continue with good agricultural practices.',
         scientificName: null,
@@ -75,7 +79,8 @@ class AnalyzeImageUseCase {
         treatment: 'Apply Mancozeb or Chlorothalonil fungicide.',
         prevention: 'Use resistant varieties and crop rotation.',
         scientificName: 'Exserohilum turcicum',
-        causingFactors: 'High humidity, warm temperatures, continuous maize cropping.',
+        causingFactors:
+            'High humidity, warm temperatures, continuous maize cropping.',
         pesticideRemedy: 'Mancozeb 80% WP - 2.5kg/ha',
       ),
       _DiagnosisData(
@@ -102,7 +107,8 @@ class AnalyzeImageUseCase {
         prevention: 'Early planting, crop rotation, intercropping.',
         scientificName: 'Spodoptera frugiperda',
         causingFactors: 'Dry conditions, late planting, monocropping.',
-        pesticideRemedy: 'Spinosad 48% SC - 150ml/ha or Flubendiamide 480 SC - 50ml/ha',
+        pesticideRemedy:
+            'Spinosad 48% SC - 150ml/ha or Flubendiamide 480 SC - 50ml/ha',
       ),
       _DiagnosisData(
         type: DiagnosisType.deficiency,
@@ -112,13 +118,15 @@ class AnalyzeImageUseCase {
         severity: Severity.medium,
         recommendation: 'Apply nitrogen fertilizer to correct deficiency.',
         treatment: 'Apply Urea or CAN fertilizer.',
-        prevention: 'Soil testing, balanced fertilization, crop rotation with legumes.',
+        prevention:
+            'Soil testing, balanced fertilization, crop rotation with legumes.',
         scientificName: null,
         causingFactors: 'Leaching, heavy rainfall, poor soil fertility.',
-        pesticideRemedy: 'Urea (46% N) - 100-150 kg/ha or CAN (26% N) - 200 kg/ha',
+        pesticideRemedy:
+            'Urea (46% N) - 100-150 kg/ha or CAN (26% N) - 200 kg/ha',
       ),
     ];
-    
+
     return diagnoses[_random.nextInt(diagnoses.length)];
   }
 
@@ -130,7 +138,8 @@ class AnalyzeImageUseCase {
         nameChichewa: 'Chikanda Chauchipuka',
         confidence: 0.88,
         severity: Severity.low,
-        recommendation: 'Your cassava crop is healthy! Continue with regular monitoring.',
+        recommendation:
+            'Your cassava crop is healthy! Continue with regular monitoring.',
         treatment: null,
         prevention: 'Continue with good agricultural practices.',
         scientificName: null,
@@ -147,20 +156,22 @@ class AnalyzeImageUseCase {
         treatment: 'No cure. Remove and destroy infected plants.',
         prevention: 'Use resistant varieties, plant disease-free cuttings.',
         scientificName: 'Cassava Mosaic Virus (CMV)',
-        causingFactors: 'Whitefly transmission, using infected planting material.',
+        causingFactors:
+            'Whitefly transmission, using infected planting material.',
         pesticideRemedy: 'No pesticide. Use resistant variety TME 14 or 419.',
       ),
       _DiagnosisData(
         type: DiagnosisType.disease,
         name: 'Cassava Brown Streak Disease',
-        nameChichewa: 'Matenda ya Mts，点',
+        nameChichewa: 'Matenda a Mtsinje wa Chikanda',
         confidence: 0.74,
         severity: Severity.high,
         recommendation: 'Remove infected plants to prevent spread.',
         treatment: 'No cure. Remove and destroy infected plants.',
         prevention: 'Use clean planting material from certified sources.',
         scientificName: 'Cassava Brown Streak Virus (CBSV)',
-        causingFactors: 'Whitefly transmission, poor quality planting material.',
+        causingFactors:
+            'Whitefly transmission, poor quality planting material.',
         pesticideRemedy: 'Control whitefly with imidacloprid.',
       ),
       _DiagnosisData(
@@ -190,7 +201,7 @@ class AnalyzeImageUseCase {
         pesticideRemedy: 'MOP (60% K2O) - 100-150 kg/ha',
       ),
     ];
-    
+
     return diagnoses[_random.nextInt(diagnoses.length)];
   }
 
@@ -216,8 +227,10 @@ class AnalyzeImageUseCase {
         confidence: 0.76,
         severity: Severity.high,
         recommendation: 'Remove infected plants immediately.',
-        treatment: 'No effective treatment. Remove and destroy infected plants.',
-        prevention: 'Crop rotation, use resistant varieties, avoid overwatering.',
+        treatment:
+            'No effective treatment. Remove and destroy infected plants.',
+        prevention:
+            'Crop rotation, use resistant varieties, avoid overwatering.',
         scientificName: 'Ralstonia solanacearum',
         causingFactors: 'Warm temperatures, high soil moisture, poor drainage.',
         pesticideRemedy: 'No effective pesticide. Use resistant varieties.',
@@ -230,10 +243,12 @@ class AnalyzeImageUseCase {
         severity: Severity.high,
         recommendation: 'Apply fungicide immediately.',
         treatment: 'Apply Mancozeb or Copper-based fungicide.',
-        prevention: 'Good spacing, avoid overhead irrigation, remove infected leaves.',
+        prevention:
+            'Good spacing, avoid overhead irrigation, remove infected leaves.',
         scientificName: 'Phytophthora infestans',
         causingFactors: 'Cool wet conditions, high humidity.',
-        pesticideRemedy: 'Mancozeb 80% WP - 2.5 kg/ha or Copper Oxychloride 50% WP - 3 kg/ha',
+        pesticideRemedy:
+            'Mancozeb 80% WP - 2.5 kg/ha or Copper Oxychloride 50% WP - 3 kg/ha',
       ),
       _DiagnosisData(
         type: DiagnosisType.disease,
@@ -259,7 +274,8 @@ class AnalyzeImageUseCase {
         prevention: 'Crop rotation, hand-pick larvae, use traps.',
         scientificName: 'Helicoverpa armigera',
         causingFactors: 'Warm weather, presence of flowers and fruits.',
-        pesticideRemedy: 'Lambda-cyhalothrin 5% EC - 300 ml/ha or Spinosad 48% SC - 150 ml/ha',
+        pesticideRemedy:
+            'Lambda-cyhalothrin 5% EC - 300 ml/ha or Spinosad 48% SC - 150 ml/ha',
       ),
       _DiagnosisData(
         type: DiagnosisType.deficiency,
@@ -275,7 +291,7 @@ class AnalyzeImageUseCase {
         pesticideRemedy: 'Calcium nitrate foliar spray - 2%',
       ),
     ];
-    
+
     return diagnoses[_random.nextInt(diagnoses.length)];
   }
 }

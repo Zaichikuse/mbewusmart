@@ -1,0 +1,64 @@
+{\rtf1\ansi\deff0
+{\fonttbl{\f0 Calibri;}}
+\fs24
+\b MbewuSmart - How to Run the App\b0\par
+\par
+\b 1. Prerequisites\b0\par
+- Flutter SDK installed and working\par
+- Android Studio installed with Android SDK\par
+- Android emulator created (for example Pixel)\par
+- Project folder: C:\\Users\\Praise Simba Phiri\\Documents\\GitHub\\mbewusmart\par
+\par
+\b 2. Open Terminal in Project Folder\b0\par
+Use PowerShell and run commands from the project root.\par
+\par
+\b 3. Verify Flutter Path\b0\par
+Run:\par
+where flutter\par
+flutter --version\par
+\par
+If you see objective_c or path-space errors, use:\par
+C:\\dev\\flutter\\bin\\flutter.bat\par
+\par
+\b 4. Start Emulator\b0\par
+flutter emulators\par
+flutter emulators --launch <emulator_id>\par
+flutter devices\par
+\par
+\b 5. Run App on Emulator\b0\par
+flutter run -d emulator-5554\par
+\par
+Path workaround:\par
+C:\\dev\\flutter\\bin\\flutter.bat run -d emulator-5554\par
+\par
+\b 6. Hot Reload / Hot Restart\b0\par
+While app is running:\par
+- r = Hot Reload\par
+- R = Hot Restart\par
+- q = Quit\par
+\par
+\b 7. Common Fixes\b0\par
+A) No supported devices connected\par
+- Start emulator in Android Studio Device Manager\par
+- Run flutter devices again\par
+\par
+B) Error: 'C:\\Users\\Praise' is not recognized\par
+- Usually Flutter path-with-spaces issue\par
+- Run with: C:\\dev\\flutter\\bin\\flutter.bat run -d emulator-5554\par
+- Ensure user PATH prioritizes C:\\dev\\flutter\\bin\par
+\par
+C) AI not responding\par
+- Confirm GEMINI_API_KEY exists in .env\par
+- Check network/DNS access to generativelanguage.googleapis.com\par
+\par
+\b 8. Helpful Commands\b0\par
+flutter clean\par
+flutter pub get\par
+flutter doctor -v\par
+flutter devices\par
+\par
+\b 9. Stop Emulator\b0\par
+adb -s emulator-5554 emu kill\par
+\par
+Generated: April 12, 2026\par
+}

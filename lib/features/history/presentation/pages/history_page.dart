@@ -43,9 +43,13 @@ class _HistoryPageState extends State<HistoryPage>
       _assistantService.setCurrentUiContext(contextName);
     });
 
-    _assistantService.setCurrentUiContext(safeInitialTab == 1 ? 'Reports' : 'History');
+    _assistantService.setCurrentUiContext(
+      safeInitialTab == 1 ? 'Reports' : 'History',
+    );
     final userId = context.read<AuthBloc>().state.user?.id;
-    context.read<DiagnosisBloc>().add(DiagnosisHistoryRequested(userId: userId));
+    context.read<DiagnosisBloc>().add(
+      DiagnosisHistoryRequested(userId: userId),
+    );
   }
 
   @override
@@ -712,7 +716,7 @@ class _HistoryPageState extends State<HistoryPage>
                   if (result.treatment != null) ...[
                     const SizedBox(height: 20),
                     Text(
-                      isChichewa ? 'Mch的治疗' : 'Treatment',
+                      isChichewa ? 'Mankhwala' : 'Treatment',
                       style: AppTextStyles.headingSmall,
                     ),
                     const SizedBox(height: 8),

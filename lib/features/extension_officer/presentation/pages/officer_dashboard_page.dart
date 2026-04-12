@@ -22,13 +22,15 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
   @override
   Widget build(BuildContext context) {
     final settingsState = context.watch<SettingsBloc>().state;
-    final isChichewa = settingsState is SettingsLoaded 
-        ? settingsState.languageCode == 'ny' 
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
         : true;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isChichewa ? 'Dashboard ya Afesa' : 'Extension Officer Dashboard'),
+        title: Text(
+          isChichewa ? 'Dashboard ya Afesa' : 'Extension Officer Dashboard',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -97,7 +99,10 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                   children: [
                     Text(
                       isChichewa ? 'Welcomer' : 'Welcome',
-                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
                     ),
                     Text(
                       userName,
@@ -114,7 +119,7 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
           ),
           const SizedBox(height: 12),
           Text(
-            isChichewa 
+            isChichewa
                 ? 'Pitani ku Field kuti mulandre ndi aMlimi'
                 : 'Visit fields to assist farmers with their crop issues',
             style: const TextStyle(color: Colors.white70),
@@ -132,7 +137,9 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
     if (state is AlertsLoaded) {
       totalAlerts = state.alerts.length;
       unreadAlerts = state.unreadCount;
-      respondedAlerts = state.alerts.where((a) => a.officerResponse != null).length;
+      respondedAlerts = state.alerts
+          .where((a) => a.officerResponse != null)
+          .length;
     }
 
     return Row(
@@ -191,7 +198,11 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
           Icon(icon, color: color, size: 28),
           const SizedBox(height: 8),
           Text(value, style: AppTextStyles.headingMedium),
-          Text(label, style: AppTextStyles.caption, textAlign: TextAlign.center),
+          Text(
+            label,
+            style: AppTextStyles.caption,
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
@@ -253,8 +264,8 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: alert.isRead 
-                          ? Colors.grey.shade100 
+                      color: alert.isRead
+                          ? Colors.grey.shade100
                           : AppTheme.warningAmber.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -268,16 +279,19 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(alert.farmerName, style: AppTextStyles.headingSmall),
                         Text(
-                          alert.cropName,
-                          style: AppTextStyles.bodySmall,
+                          alert.farmerName,
+                          style: AppTextStyles.headingSmall,
                         ),
+                        Text(alert.cropName, style: AppTextStyles.bodySmall),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: _getConfidenceColor(alert.confidence),
                       borderRadius: BorderRadius.circular(12),
@@ -296,7 +310,11 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  const Icon(Icons.location_on, size: 16, color: AppTheme.textMuted),
+                  const Icon(
+                    Icons.location_on,
+                    size: 16,
+                    color: AppTheme.textMuted,
+                  ),
                   const SizedBox(width: 4),
                   Text(alert.location, style: AppTextStyles.caption),
                   const Spacer(),
@@ -320,7 +338,7 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          isChichewa ? 'Maw有人 aliy' : 'Responded',
+                          isChichewa ? 'Wayankha kale' : 'Responded',
                           style: TextStyle(color: AppTheme.healthyGreen),
                         ),
                       ),
@@ -368,13 +386,13 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  
+
                   Text(
                     isChichewa ? 'Zambiri za Alert' : 'Alert Details',
                     style: AppTextStyles.headingMedium,
                   ),
                   const SizedBox(height: 20),
-                  
+
                   _buildDetailRow(
                     isChichewa ? 'Mlimi' : 'Farmer',
                     alert.farmerName,
@@ -403,9 +421,9 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                     isChichewa ? 'Tsiku' : 'Date',
                     _formatDate(alert.timestamp),
                   ),
-                  
+
                   const SizedBox(height: 20),
-                  
+
                   if (alert.officerResponse != null) ...[
                     Text(
                       isChichewa ? 'Yankho Lanu' : 'Your Response',
@@ -422,7 +440,9 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                     ),
                   ] else ...[
                     Text(
-                      isChichewa ? 'Lankhulani Yankho' : 'Add Professional Opinion',
+                      isChichewa
+                          ? 'Lankhulani Yankho'
+                          : 'Add Professional Opinion',
                       style: AppTextStyles.headingSmall,
                     ),
                     const SizedBox(height: 12),
@@ -430,7 +450,7 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                       controller: responseController,
                       maxLines: 4,
                       decoration: InputDecoration(
-                        hintText: isChichewa 
+                        hintText: isChichewa
                             ? 'Lankhulani zoti mukuganiza...'
                             : 'Write your professional opinion...',
                         border: OutlineInputBorder(
@@ -445,19 +465,26 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                         onPressed: () {
                           if (responseController.text.isNotEmpty) {
                             this.context.read<AlertsBloc>().add(
-                              AlertResponseAdded(alert.id, responseController.text),
+                              AlertResponseAdded(
+                                alert.id,
+                                responseController.text,
+                              ),
                             );
                             Navigator.pop(context);
                             ScaffoldMessenger.of(this.context).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  isChichewa ? 'Yankho salidwa!' : 'Response saved!',
+                                  isChichewa
+                                      ? 'Yankho salidwa!'
+                                      : 'Response saved!',
                                 ),
                               ),
                             );
                           }
                         },
-                        child: Text(isChichewa ? 'Sunga Yankho' : 'Submit Response'),
+                        child: Text(
+                          isChichewa ? 'Sunga Yankho' : 'Submit Response',
+                        ),
                       ),
                     ),
                   ],
@@ -480,9 +507,7 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
             width: 100,
             child: Text(label, style: AppTextStyles.bodySmall),
           ),
-          Expanded(
-            child: Text(value, style: AppTextStyles.bodyMedium),
-          ),
+          Expanded(child: Text(value, style: AppTextStyles.bodyMedium)),
         ],
       ),
     );

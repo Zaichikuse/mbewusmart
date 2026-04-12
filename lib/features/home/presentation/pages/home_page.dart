@@ -77,10 +77,11 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildGreetingCard(BuildContext context, bool isChichewa) {
     String userName = isChichewa ? 'Mwandi' : 'Farmer';
-    
+
     try {
       final authState = context.watch<AuthBloc>().state;
-      if (authState.status == AuthStatus.authenticated && authState.user != null) {
+      if (authState.status == AuthStatus.authenticated &&
+          authState.user != null) {
         userName = authState.user!.fullName.split(' ').first;
       }
     } catch (e) {
@@ -103,10 +104,7 @@ class _HomePageState extends State<HomePage> {
         children: [
           Text(
             AppUtils.getGreeting(context, isChichewa),
-            style: const TextStyle(
-              fontSize: 16,
-              color: Colors.white70,
-            ),
+            style: const TextStyle(fontSize: 16, color: Colors.white70),
           ),
           const SizedBox(height: 4),
           Text(
@@ -119,13 +117,10 @@ class _HomePageState extends State<HomePage> {
           ),
           const SizedBox(height: 12),
           Text(
-            isChichewa 
+            isChichewa
                 ? 'Tiyeni tipimshe zizolongo zanu'
                 : "Let's check your crops today",
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.white70,
-            ),
+            style: const TextStyle(fontSize: 14, color: Colors.white70),
           ),
         ],
       ),
@@ -149,9 +144,9 @@ class _HomePageState extends State<HomePage> {
                 label: isChichewa ? 'Pima' : 'Scan',
                 color: AppTheme.primaryGreen,
                 onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ScanPage()),
-                  );
+                  Navigator.of(
+                    context,
+                  ).push(MaterialPageRoute(builder: (_) => const ScanPage()));
                 },
               ),
             ),
@@ -267,12 +262,12 @@ class _HomePageState extends State<HomePage> {
               child: LoadingIndicator(),
             );
           }
-          
+
           if (state is DiagnosisHistoryLoaded) {
             if (state.history.isEmpty) {
               return _buildEmptyState(isChichewa);
             }
-            
+
             return ListView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -283,11 +278,11 @@ class _HomePageState extends State<HomePage> {
               },
             );
           }
-          
+
           if (state is DiagnosisError) {
             return _buildErrorState(state.message, isChichewa);
           }
-          
+
           return _buildEmptyState(isChichewa);
         },
       );
@@ -305,7 +300,7 @@ class _HomePageState extends State<HomePage> {
       ),
       child: EmptyState(
         title: isChichewa ? 'Palibe zopima mpaka pano' : 'No diagnoses yet',
-        message: isChichewa 
+        message: isChichewa
             ? 'Zopima zanu zidzasungidwa apa'
             : 'Your diagnoses will appear here',
         icon: Icons.eco_outlined,
@@ -335,6 +330,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildHistoryCard(dynamic result, bool isChichewa) {
+    final typeName = _safeEnumName(result.type);
+    final severityName = _safeEnumName(result.severity);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
@@ -345,16 +343,14 @@ class _HomePageState extends State<HomePage> {
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(
-            _getDiagnosisIcon(result.type?.name ?? ''),
+            _getDiagnosisIcon(typeName),
             color: _getSeverityColor(result.severity),
           ),
         ),
         title: Text(result.diagnosisName ?? 'Unknown'),
         subtitle: Text(
-          '${result.type?.name ?? 'Unknown'} - ${result.severity?.name ?? 'Unknown'}',
-          style: TextStyle(
-            color: _getSeverityColor(result.severity),
-          ),
+          '${typeName.isEmpty ? 'Unknown' : typeName} - ${severityName.isEmpty ? 'Unknown' : severityName}',
+          style: TextStyle(color: _getSeverityColor(result.severity)),
         ),
         trailing: Text(
           _formatDate(result.timestamp),
@@ -362,6 +358,16 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+  }
+
+  String _safeEnumName(dynamic value) {
+    if (value == null) return '';
+    final text = value.toString();
+    final separator = text.lastIndexOf('.');
+    if (separator == -1 || separator == text.length - 1) {
+      return text;
+    }
+    return text.substring(separator + 1);
   }
 
   Color _getSeverityColor(dynamic severity) {

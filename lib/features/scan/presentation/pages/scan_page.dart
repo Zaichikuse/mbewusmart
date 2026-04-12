@@ -432,7 +432,7 @@ class _ScanPageState extends State<ScanPage> {
                     // Treatment
                     if (result.treatment != null)
                       _buildDetailSection(
-                        isChichewa ? 'Mch的治疗' : 'Treatment',
+                        isChichewa ? 'Mankhwala' : 'Treatment',
                         result.treatment!,
                         isChichewa,
                         Icons.healing,
@@ -685,9 +685,8 @@ class _ScanPageState extends State<ScanPage> {
                             Navigator.pop(context);
                             Navigator.of(this.context).push(
                               MaterialPageRoute(
-                                builder: (_) => HistoryPage(
-                                  initialDiagnosis: result,
-                                ),
+                                builder: (_) =>
+                                    HistoryPage(initialDiagnosis: result),
                               ),
                             );
                           },
