@@ -32,11 +32,14 @@ class _LoginPageState extends State<LoginPage> {
                   .languageCode ==
               'ny'
         : true;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset),
           child: Form(
             key: _formKey,
             child: Column(

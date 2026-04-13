@@ -386,6 +386,91 @@ class AiAssistantService {
     return buffer.toString().trim();
   }
 
+  String _buildLocalAssistantFallback({
+    required bool isChichewa,
+    required String prompt,
+    DiagnosisResult? diagnosis,
+    String? locationName,
+    ExtensionOfficer? nearestOfficer,
+    AgroDealer? nearestDealer,
+  }) {
+    final hasDiagnosis = diagnosis != null;
+
+    if (isChichewa) {
+      final parts = <String>[
+        'Ndikugwiritsa ntchito offline AI helper pakadali pano.',
+      ];
+
+      if (hasDiagnosis) {
+        final d = diagnosis;
+        parts.add(
+          'Zotsatira zaposachedwa: ${d.diagnosisNameChichewa} (${(d.confidence * 100).toStringAsFixed(0)}% confidence).',
+        );
+        if ((d.treatment ?? '').trim().isNotEmpty) {
+          parts.add('Chithandizo: ${d.treatment}.');
+        }
+        if ((d.prevention ?? '').trim().isNotEmpty) {
+          parts.add('Kupewa: ${d.prevention}.');
+        }
+      } else {
+        parts.add(
+          'Sindingaone diagnosis yanu pano, chonde yambani ndi crop scan kenako funsani kachiwiri.',
+        );
+      }
+
+      if (nearestDealer != null || nearestOfficer != null) {
+        parts.add(
+          _buildAutomationReply(
+            isChichewa: true,
+            locationName: locationName,
+            nearestOfficer: nearestOfficer,
+            nearestDealer: nearestDealer,
+          ),
+        );
+      }
+
+      parts.add(
+        'Funso lanu: "$prompt". Ngati intaneti ikubweranso, ndingakupatseni yankho lathunthu la Gemini.',
+      );
+      return parts.join(' ');
+    }
+
+    final parts = <String>['I am using the offline AI helper right now.'];
+
+    if (hasDiagnosis) {
+      final d = diagnosis;
+      parts.add(
+        'Latest diagnosis: ${d.diagnosisName} (${(d.confidence * 100).toStringAsFixed(0)}% confidence).',
+      );
+      if ((d.treatment ?? '').trim().isNotEmpty) {
+        parts.add('Treatment: ${d.treatment}.');
+      }
+      if ((d.prevention ?? '').trim().isNotEmpty) {
+        parts.add('Prevention: ${d.prevention}.');
+      }
+    } else {
+      parts.add(
+        'I cannot find a diagnosis context yet, so please run a crop scan first and ask again.',
+      );
+    }
+
+    if (nearestDealer != null || nearestOfficer != null) {
+      parts.add(
+        _buildAutomationReply(
+          isChichewa: false,
+          locationName: locationName,
+          nearestOfficer: nearestOfficer,
+          nearestDealer: nearestDealer,
+        ),
+      );
+    }
+
+    parts.add(
+      'Your question was: "$prompt". Once internet is available again, I can provide a full Gemini response.',
+    );
+    return parts.join(' ');
+  }
+
   Future<String> askQuestion({
     required String prompt,
     required bool isChichewa,
@@ -428,9 +513,14 @@ class AiAssistantService {
     }
 
     if (_geminiApiKey.isEmpty) {
-      return isChichewa
-          ? 'GEMINI_API_KEY sinalembedwe mu .env. Onetsetsani kuti fayilo ya .env ili ndi key yeniyeni kenako yambitsaninso app.'
-          : 'GEMINI_API_KEY is not configured in .env. Add the key to your .env file and restart the app.';
+      return _buildLocalAssistantFallback(
+        isChichewa: isChichewa,
+        prompt: prompt,
+        diagnosis: diagnosis,
+        locationName: effectiveLocationName,
+        nearestOfficer: effectiveNearestOfficer,
+        nearestDealer: effectiveNearestDealer,
+      );
     }
 
     final historyText = history
@@ -467,7 +557,7 @@ Nearby support:
         '''
 You are an agricultural assistant for Malawi farmers.
 $languageInstruction
-Always reply in the same language as the user\'s latest question unless the user explicitly asks to switch language.
+Always reply in the same language as the user's latest question unless the user explicitly asks to switch language.
 If asked about nearby help or agro-dealers, use the support context provided.
 Give safe farming guidance only.
 
@@ -509,17 +599,32 @@ $prompt
           )
           .timeout(const Duration(seconds: 25));
     } on TimeoutException {
-      return isChichewa
-          ? 'AI siyikupezeka pano chifukwa request yatenga nthawi yaitali. Yesaninso pangono.'
-          : 'AI is taking too long to respond right now. Please try again shortly.';
+      return _buildLocalAssistantFallback(
+        isChichewa: isChichewa,
+        prompt: prompt,
+        diagnosis: diagnosis,
+        locationName: effectiveLocationName,
+        nearestOfficer: effectiveNearestOfficer,
+        nearestDealer: effectiveNearestDealer,
+      );
     } on SocketException {
-      return isChichewa
-          ? 'Palibe intaneti kapena DNS yalephera. Onani network yanu kenako yesaninso.'
-          : 'No internet connection or DNS lookup failed. Check your network and try again.';
+      return _buildLocalAssistantFallback(
+        isChichewa: isChichewa,
+        prompt: prompt,
+        diagnosis: diagnosis,
+        locationName: effectiveLocationName,
+        nearestOfficer: effectiveNearestOfficer,
+        nearestDealer: effectiveNearestDealer,
+      );
     } catch (_) {
-      return isChichewa
-          ? 'AI yalephera pano chifukwa cha vuto la network. Yesaninso pangono.'
-          : 'AI request failed due to a network error. Please try again shortly.';
+      return _buildLocalAssistantFallback(
+        isChichewa: isChichewa,
+        prompt: prompt,
+        diagnosis: diagnosis,
+        locationName: effectiveLocationName,
+        nearestOfficer: effectiveNearestOfficer,
+        nearestDealer: effectiveNearestDealer,
+      );
     }
 
     if (response.statusCode >= 400) {
@@ -534,9 +639,14 @@ $prompt
             ? 'Mafunso achuluka kwambiri pakadali pano (rate limit). Dikirani pangono kenako yesaninso.'
             : 'Too many AI requests right now (rate limited). Wait a moment and try again.';
       }
-      return isChichewa
-          ? 'AI yalephera kuyankha pano. Yesani kachiwiri pangono.'
-          : 'AI could not answer right now. Please try again shortly.';
+      return _buildLocalAssistantFallback(
+        isChichewa: isChichewa,
+        prompt: prompt,
+        diagnosis: diagnosis,
+        locationName: effectiveLocationName,
+        nearestOfficer: effectiveNearestOfficer,
+        nearestDealer: effectiveNearestDealer,
+      );
     }
 
     Map<String, dynamic> json;
@@ -550,9 +660,14 @@ $prompt
 
     final candidates = (json['candidates'] as List<dynamic>? ?? const []);
     if (candidates.isEmpty) {
-      return isChichewa
-          ? 'Palibe yankho la AI pakali pano. Yesaninso.'
-          : 'No AI response was returned. Please try again.';
+      return _buildLocalAssistantFallback(
+        isChichewa: isChichewa,
+        prompt: prompt,
+        diagnosis: diagnosis,
+        locationName: effectiveLocationName,
+        nearestOfficer: effectiveNearestOfficer,
+        nearestDealer: effectiveNearestDealer,
+      );
     }
 
     final content = candidates.first['content'] as Map<String, dynamic>?;
@@ -564,9 +679,14 @@ $prompt
         .trim();
 
     if (text.isEmpty) {
-      return isChichewa
-          ? 'AI sinapereke yankho lomveka.'
-          : 'AI did not return a usable response.';
+      return _buildLocalAssistantFallback(
+        isChichewa: isChichewa,
+        prompt: prompt,
+        diagnosis: diagnosis,
+        locationName: effectiveLocationName,
+        nearestOfficer: effectiveNearestOfficer,
+        nearestDealer: effectiveNearestDealer,
+      );
     }
 
     return text;
