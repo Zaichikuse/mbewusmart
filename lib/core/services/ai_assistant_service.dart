@@ -87,6 +87,22 @@ class AiAssistantService {
     return '';
   }
 
+  List<String> get _geminiModelCandidates {
+    final configuredModel = _sanitizeApiKey(dotenv.env['GEMINI_MODEL']);
+    final models = <String>[
+      if (configuredModel.isNotEmpty) configuredModel,
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+    ];
+
+    return models
+        .map((m) => m.replaceFirst('models/', '').trim())
+        .where((m) => m.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
   String _historyKeyForLanguage(String languageCode, {String? userId}) {
     final scopedUserId = (userId == null || userId.trim().isEmpty)
         ? 'guest'
@@ -393,6 +409,7 @@ class AiAssistantService {
     String? locationName,
     ExtensionOfficer? nearestOfficer,
     AgroDealer? nearestDealer,
+    String? reason,
   }) {
     final hasDiagnosis = diagnosis != null;
 
@@ -432,6 +449,9 @@ class AiAssistantService {
       parts.add(
         'Funso lanu: "$prompt". Ngati intaneti ikubweranso, ndingakupatseni yankho lathunthu la Gemini.',
       );
+      if (reason != null && reason.trim().isNotEmpty) {
+        parts.add('Chifukwa: $reason.');
+      }
       return parts.join(' ');
     }
 
@@ -468,6 +488,9 @@ class AiAssistantService {
     parts.add(
       'Your question was: "$prompt". Once internet is available again, I can provide a full Gemini response.',
     );
+    if (reason != null && reason.trim().isNotEmpty) {
+      parts.add('Reason: $reason.');
+    }
     return parts.join(' ');
   }
 
@@ -520,6 +543,7 @@ class AiAssistantService {
         locationName: effectiveLocationName,
         nearestOfficer: effectiveNearestOfficer,
         nearestDealer: effectiveNearestDealer,
+        reason: 'GEMINI_API_KEY is missing or unreadable',
       );
     }
 
@@ -572,33 +596,77 @@ User question:
 $prompt
 ''';
 
-    final uri = Uri.https(
-      'generativelanguage.googleapis.com',
-      '/v1beta/models/gemini-1.5-flash:generateContent',
-    );
+    http.Response? response;
+    for (final model in _geminiModelCandidates) {
+      final uri = Uri.https(
+        'generativelanguage.googleapis.com',
+        '/v1/models/$model:generateContent',
+      );
 
-    http.Response response;
-    try {
-      response = await http
-          .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'x-goog-api-key': _geminiApiKey,
-            },
-            body: jsonEncode({
-              'contents': [
-                {
-                  'parts': [
-                    {'text': userPrompt},
-                  ],
+      try {
+        final attempt = await http
+            .post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': _geminiApiKey,
+              },
+              body: jsonEncode({
+                'contents': [
+                  {
+                    'parts': [
+                      {'text': userPrompt},
+                    ],
+                  },
+                ],
+                'generationConfig': {
+                  'temperature': 0.4,
+                  'maxOutputTokens': 450,
                 },
-              ],
-              'generationConfig': {'temperature': 0.4, 'maxOutputTokens': 450},
-            }),
-          )
-          .timeout(const Duration(seconds: 25));
-    } on TimeoutException {
+              }),
+            )
+            .timeout(const Duration(seconds: 25));
+
+        if (attempt.statusCode == 404) {
+          continue;
+        }
+
+        response = attempt;
+        break;
+      } on TimeoutException {
+        return _buildLocalAssistantFallback(
+          isChichewa: isChichewa,
+          prompt: prompt,
+          diagnosis: diagnosis,
+          locationName: effectiveLocationName,
+          nearestOfficer: effectiveNearestOfficer,
+          nearestDealer: effectiveNearestDealer,
+          reason: 'Gemini request timed out',
+        );
+      } on SocketException {
+        return _buildLocalAssistantFallback(
+          isChichewa: isChichewa,
+          prompt: prompt,
+          diagnosis: diagnosis,
+          locationName: effectiveLocationName,
+          nearestOfficer: effectiveNearestOfficer,
+          nearestDealer: effectiveNearestDealer,
+          reason: 'No internet or DNS/network failure',
+        );
+      } catch (e) {
+        return _buildLocalAssistantFallback(
+          isChichewa: isChichewa,
+          prompt: prompt,
+          diagnosis: diagnosis,
+          locationName: effectiveLocationName,
+          nearestOfficer: effectiveNearestOfficer,
+          nearestDealer: effectiveNearestDealer,
+          reason: 'Unexpected client error: ${e.runtimeType}',
+        );
+      }
+    }
+
+    if (response == null) {
       return _buildLocalAssistantFallback(
         isChichewa: isChichewa,
         prompt: prompt,
@@ -606,24 +674,7 @@ $prompt
         locationName: effectiveLocationName,
         nearestOfficer: effectiveNearestOfficer,
         nearestDealer: effectiveNearestDealer,
-      );
-    } on SocketException {
-      return _buildLocalAssistantFallback(
-        isChichewa: isChichewa,
-        prompt: prompt,
-        diagnosis: diagnosis,
-        locationName: effectiveLocationName,
-        nearestOfficer: effectiveNearestOfficer,
-        nearestDealer: effectiveNearestDealer,
-      );
-    } catch (_) {
-      return _buildLocalAssistantFallback(
-        isChichewa: isChichewa,
-        prompt: prompt,
-        diagnosis: diagnosis,
-        locationName: effectiveLocationName,
-        nearestOfficer: effectiveNearestOfficer,
-        nearestDealer: effectiveNearestDealer,
+        reason: 'No supported Gemini model responded successfully',
       );
     }
 
@@ -646,6 +697,7 @@ $prompt
         locationName: effectiveLocationName,
         nearestOfficer: effectiveNearestOfficer,
         nearestDealer: effectiveNearestDealer,
+        reason: 'Gemini API returned HTTP ${response.statusCode}',
       );
     }
 
@@ -667,6 +719,7 @@ $prompt
         locationName: effectiveLocationName,
         nearestOfficer: effectiveNearestOfficer,
         nearestDealer: effectiveNearestDealer,
+        reason: 'Gemini returned empty candidates',
       );
     }
 
@@ -686,6 +739,7 @@ $prompt
         locationName: effectiveLocationName,
         nearestOfficer: effectiveNearestOfficer,
         nearestDealer: effectiveNearestDealer,
+        reason: 'Gemini returned empty text',
       );
     }
 
