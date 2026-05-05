@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/di/injection_container.dart' as di;
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../alerts/presentation/bloc/alerts_bloc.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
+import '../../../reports/data/services/report_service.dart';
+import '../../../reports/domain/entities/diagnosis_report.dart';
 
 class ManagerDashboardPage extends StatefulWidget {
   const ManagerDashboardPage({super.key});
@@ -14,6 +17,8 @@ class ManagerDashboardPage extends StatefulWidget {
 }
 
 class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
+  late final ReportService _reportService = di.sl<ReportService>();
+
   @override
   void initState() {
     super.initState();
@@ -24,19 +29,23 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   @override
   Widget build(BuildContext context) {
     final settingsState = context.watch<SettingsBloc>().state;
-    final isChichewa = settingsState is SettingsLoaded 
-        ? settingsState.languageCode == 'ny' 
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
         : true;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isChichewa ? 'Dashboard ya Manager' : 'Agriculture Manager Dashboard'),
+        title: Text(
+          isChichewa ? 'Dashboard ya Manager' : 'Agriculture Manager Dashboard',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
               context.read<AlertsBloc>().add(AlertsLoadRequested());
-              context.read<DiagnosisBloc>().add(const DiagnosisHistoryRequested());
+              context.read<DiagnosisBloc>().add(
+                const DiagnosisHistoryRequested(),
+              );
             },
           ),
         ],
@@ -69,6 +78,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               ),
               const SizedBox(height: 12),
               _buildRecentAlerts(isChichewa),
+              const SizedBox(height: 24),
+              Text(
+                isChichewa ? 'Ma Report' : 'Reports',
+                style: AppTextStyles.headingSmall,
+              ),
+              const SizedBox(height: 12),
+              _buildReportsList(isChichewa),
             ],
           ),
         ),
@@ -96,7 +112,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         children: [
           Row(
             children: [
-              const Icon(Icons.admin_panel_settings, color: Colors.white, size: 32),
+              const Icon(
+                Icons.admin_panel_settings,
+                color: Colors.white,
+                size: 32,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -104,7 +124,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   children: [
                     Text(
                       isChichewa ? 'Welcomer' : 'Welcome',
-                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
                     ),
                     Text(
                       userName,
@@ -121,7 +144,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           ),
           const SizedBox(height: 12),
           Text(
-            isChichewa 
+            isChichewa
                 ? 'Onani mbiri ya aMlimi onse m district'
                 : 'Monitor all farmers and extension officers in your district',
             style: const TextStyle(color: Colors.white70),
@@ -147,7 +170,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             if (alertsState is AlertsLoaded) {
               totalAlerts = alertsState.alerts.length;
               pendingAlerts = alertsState.unreadCount;
-              resolvedAlerts = alertsState.alerts.where((a) => a.officerResponse != null).length;
+              resolvedAlerts = alertsState.alerts
+                  .where((a) => a.officerResponse != null)
+                  .length;
             }
 
             return Column(
@@ -227,7 +252,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           Icon(icon, color: color, size: 28),
           const SizedBox(height: 8),
           Text(value, style: AppTextStyles.headingMedium),
-          Text(label, style: AppTextStyles.caption, textAlign: TextAlign.center),
+          Text(
+            label,
+            style: AppTextStyles.caption,
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
@@ -257,7 +286,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               children: [
                 Expanded(
                   flex: 2,
-                  child: Text(d['name'] as String, style: AppTextStyles.bodyMedium),
+                  child: Text(
+                    d['name'] as String,
+                    style: AppTextStyles.bodyMedium,
+                  ),
                 ),
                 Expanded(
                   child: Row(
@@ -299,7 +331,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               child: Center(
                 child: Column(
                   children: [
-                    Icon(Icons.check_circle, size: 48, color: AppTheme.healthyGreen),
+                    Icon(
+                      Icons.check_circle,
+                      size: 48,
+                      color: AppTheme.healthyGreen,
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       isChichewa ? 'Palibe alert' : 'No alerts',
@@ -326,15 +362,18 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                       color: AppTheme.warningAmber.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(Icons.warning_amber, color: AppTheme.warningAmber),
+                    child: Icon(
+                      Icons.warning_amber,
+                      color: AppTheme.warningAmber,
+                    ),
                   ),
                   title: Text(alert.farmerName),
                   subtitle: Text('${alert.cropName} - ${alert.location}'),
                   trailing: Text(
                     '${(alert.confidence * 100).toStringAsFixed(0)}%',
                     style: TextStyle(
-                      color: alert.confidence >= 0.7 
-                          ? AppTheme.healthyGreen 
+                      color: alert.confidence >= 0.7
+                          ? AppTheme.healthyGreen
                           : AppTheme.diseaseRed,
                       fontWeight: FontWeight.bold,
                     ),
@@ -346,6 +385,85 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         }
         return const SizedBox.shrink();
       },
+    );
+  }
+
+  Widget _buildReportsList(bool isChichewa) {
+    return StreamBuilder<List<DiagnosisReport>>(
+      stream: _reportService.watchAllReports(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final reports = snapshot.data ?? const [];
+        if (reports.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.check_circle,
+                    size: 48,
+                    color: AppTheme.healthyGreen,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    isChichewa ? 'Palibe report' : 'No reports',
+                    style: AppTextStyles.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: reports.length,
+          itemBuilder: (context, index) {
+            final report = reports[index];
+            return _buildReportCard(report);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildReportCard(DiagnosisReport report) {
+    final statusColor = report.status == 'reviewed'
+        ? AppTheme.healthyGreen
+        : AppTheme.warningAmber;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: statusColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(Icons.eco, color: statusColor),
+        ),
+        title: Text(report.farmerName),
+        subtitle: Text('${report.cropType} - ${report.diagnosisName}'),
+        trailing: Text(
+          '${(report.confidence * 100).toStringAsFixed(0)}% ',
+          style: TextStyle(
+            color: report.confidence >= 0.7
+                ? AppTheme.healthyGreen
+                : AppTheme.diseaseRed,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
     );
   }
 }

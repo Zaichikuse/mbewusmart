@@ -1,22 +1,29 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../domain/entities/user.dart';
 import '../../domain/usecases/get_current_user_usecase.dart';
 import '../../domain/usecases/login_usecase.dart';
 import '../../domain/usecases/register_usecase.dart';
 import '../../domain/usecases/logout_usecase.dart';
 import 'auth_event.dart';
 import 'auth_state.dart';
+import '../../../../core/services/user_directory_service.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final LoginUseCase loginUseCase;
   final RegisterUseCase registerUseCase;
   final LogoutUseCase logoutUseCase;
   final GetCurrentUserUseCase getCurrentUserUseCase;
+  final UserDirectoryService userDirectoryService;
 
   AuthBloc({
     required this.loginUseCase,
     required this.registerUseCase,
     required this.logoutUseCase,
     required this.getCurrentUserUseCase,
+    required this.userDirectoryService,
   }) : super(const AuthState()) {
     on<AuthCheckRequested>(_onCheckRequested);
     on<AuthLoginRequested>(_onLoginRequested);
@@ -32,15 +39,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(state.copyWith(status: AuthStatus.loading));
 
     final result = await getCurrentUserUseCase();
-    result.fold(
-      (_) => emit(
-        state.copyWith(
-          status: AuthStatus.unauthenticated,
-          clearUser: true,
-          clearErrorMessage: true,
-        ),
-      ),
-      (user) {
+    await result.fold(
+      (_) async {
+        emit(
+          state.copyWith(
+            status: AuthStatus.unauthenticated,
+            clearUser: true,
+            clearErrorMessage: true,
+          ),
+        );
+      },
+      (user) async {
         if (user == null) {
           emit(
             state.copyWith(
@@ -52,6 +61,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           return;
         }
 
+        unawaited(_syncUser(user, 'auth check'));
         emit(
           state.copyWith(
             status: AuthStatus.authenticated,
@@ -71,15 +81,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     final result = await loginUseCase(event.phoneNumber, event.pin);
 
-    result.fold(
-      (failure) => emit(state.copyWith(
-        status: AuthStatus.error,
-        errorMessage: failure.message,
-      )),
-      (user) => emit(state.copyWith(
-        status: AuthStatus.authenticated,
-        user: user,
-      )),
+    await result.fold(
+      (failure) async {
+        emit(
+          state.copyWith(
+            status: AuthStatus.error,
+            errorMessage: failure.message,
+          ),
+        );
+      },
+      (user) async {
+        emit(state.copyWith(status: AuthStatus.authenticated, user: user));
+      },
     );
   }
 
@@ -97,15 +110,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       pin: event.pin,
     );
 
-    result.fold(
-      (failure) => emit(state.copyWith(
-        status: AuthStatus.error,
-        errorMessage: failure.message,
-      )),
-      (user) => emit(state.copyWith(
-        status: AuthStatus.authenticated,
-        user: user,
-      )),
+    await result.fold(
+      (failure) async {
+        emit(
+          state.copyWith(
+            status: AuthStatus.error,
+            errorMessage: failure.message,
+          ),
+        );
+      },
+      (user) async {
+        emit(state.copyWith(status: AuthStatus.authenticated, user: user));
+      },
     );
   }
 
@@ -118,33 +134,38 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final result = await logoutUseCase();
 
     result.fold(
-      (failure) => emit(state.copyWith(
-        status: AuthStatus.error,
-        errorMessage: failure.message,
-      )),
-      (_) => emit(state.copyWith(
-        status: AuthStatus.unauthenticated,
-        clearUser: true,
-        clearErrorMessage: true,
-      )),
+      (failure) => emit(
+        state.copyWith(status: AuthStatus.error, errorMessage: failure.message),
+      ),
+      (_) => emit(
+        state.copyWith(
+          status: AuthStatus.unauthenticated,
+          clearUser: true,
+          clearErrorMessage: true,
+        ),
+      ),
     );
   }
 
-  void _onUserChanged(
-    AuthUserChanged event,
-    Emitter<AuthState> emit,
-  ) {
+  void _onUserChanged(AuthUserChanged event, Emitter<AuthState> emit) {
     if (event.user != null) {
-      emit(state.copyWith(
-        status: AuthStatus.authenticated,
-        user: event.user,
-      ));
+      emit(state.copyWith(status: AuthStatus.authenticated, user: event.user));
     } else {
-      emit(state.copyWith(
-        status: AuthStatus.unauthenticated,
-        clearUser: true,
-        clearErrorMessage: true,
-      ));
+      emit(
+        state.copyWith(
+          status: AuthStatus.unauthenticated,
+          clearUser: true,
+          clearErrorMessage: true,
+        ),
+      );
+    }
+  }
+
+  Future<void> _syncUser(User user, String source) async {
+    try {
+      await userDirectoryService.syncUser(user);
+    } catch (e) {
+      debugPrint('User sync failed during $source: $e');
     }
   }
 }

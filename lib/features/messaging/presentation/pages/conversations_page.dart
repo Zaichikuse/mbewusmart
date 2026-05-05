@@ -6,7 +6,7 @@ import '../../../../core/utils/localization_helper.dart';
 import '../../domain/entities/conversation.dart';
 import '../bloc/messaging_bloc.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
-import '../../../auth/presentation/bloc/auth_state.dart' show AuthState, AuthStatus;
+import '../../../auth/presentation/bloc/auth_state.dart' show AuthStatus;
 import 'chat_page.dart';
 
 class ConversationsPage extends StatelessWidget {
@@ -18,9 +18,7 @@ class ConversationsPage extends StatelessWidget {
     final isChichewa = LocalizationHelper.isChichewa(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(appLoc?.communicate ?? 'Communicate'),
-      ),
+      appBar: AppBar(title: Text(appLoc?.communicate ?? 'Communicate')),
       body: BlocConsumer<MessagingBloc, MessagingState>(
         listener: (context, state) {
           if (state is MessagingConversationCreated) {
@@ -44,13 +42,19 @@ class ConversationsPage extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+                  const Icon(
+                    Icons.error_outline,
+                    size: 48,
+                    color: AppTheme.errorRed,
+                  ),
                   const SizedBox(height: 16),
                   Text(state.message),
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: () {
-                      context.read<MessagingBloc>().add(MessagingLoadConversations());
+                      context.read<MessagingBloc>().add(
+                        MessagingLoadConversations(),
+                      );
                     },
                     child: Text(appLoc?.retry ?? 'Retry'),
                   ),
@@ -92,7 +96,11 @@ class ConversationsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildEmptyState(BuildContext context, AppLocalizations? appLoc, bool isChichewa) {
+  Widget _buildEmptyState(
+    BuildContext context,
+    AppLocalizations? appLoc,
+    bool isChichewa,
+  ) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -123,8 +131,6 @@ class ConversationsPage extends StatelessWidget {
     bool isChichewa,
   ) {
     final currentUserId = _getCurrentUserId(context);
-    final appLoc = AppLocalizations.of(context);
-
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: ListTile(
@@ -149,12 +155,16 @@ class ConversationsPage extends StatelessWidget {
                 conversation.lastMessageContent!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.bodySmall.copyWith(color: AppTheme.textMuted),
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppTheme.textMuted,
+                ),
               ),
             if (conversation.targetEpa != null)
               Text(
                 conversation.targetEpa!,
-                style: AppTextStyles.caption.copyWith(color: AppTheme.primaryGreen),
+                style: AppTextStyles.caption.copyWith(
+                  color: AppTheme.primaryGreen,
+                ),
               ),
           ],
         ),
@@ -224,7 +234,9 @@ class ConversationsPage extends StatelessWidget {
                   child: const Icon(Icons.person, color: Colors.white),
                 ),
                 title: Text(appLoc?.extensionOfficer ?? 'Extension Officer'),
-                subtitle: Text(isChichewa ? 'Afesa Officer' : 'Contact for help'),
+                subtitle: Text(
+                  isChichewa ? 'Afesa Officer' : 'Contact for help',
+                ),
                 onTap: () {
                   Navigator.pop(bottomSheetContext);
                   _startConversation(context, 'extensionOfficer');
@@ -247,8 +259,12 @@ class ConversationsPage extends StatelessWidget {
                   backgroundColor: AppTheme.primaryGreenLight,
                   child: const Icon(Icons.manage_accounts, color: Colors.white),
                 ),
-                title: Text(appLoc?.agricultureManager ?? 'Agriculture Manager'),
-                subtitle: Text(isChichewa ? 'Manager Waulimi' : 'Report issues'),
+                title: Text(
+                  appLoc?.agricultureManager ?? 'Agriculture Manager',
+                ),
+                subtitle: Text(
+                  isChichewa ? 'Manager Waulimi' : 'Report issues',
+                ),
                 onTap: () {
                   Navigator.pop(bottomSheetContext);
                   _startConversation(context, 'agricultureManager');
@@ -264,17 +280,17 @@ class ConversationsPage extends StatelessWidget {
   void _startConversation(BuildContext context, String targetRole) {
     final userId = _getCurrentUserId(context);
     if (userId != null) {
-      context.read<MessagingBloc>().add(MessagingStartConversation(
-        userId: userId,
-        targetRole: targetRole,
-      ));
+      context.read<MessagingBloc>().add(
+        MessagingStartConversation(userId: userId, targetRole: targetRole),
+      );
     }
   }
 
   String? _getCurrentUserId(BuildContext context) {
     try {
       final authState = context.read<AuthBloc>().state;
-      if (authState.status == AuthStatus.authenticated && authState.user != null) {
+      if (authState.status == AuthStatus.authenticated &&
+          authState.user != null) {
         return authState.user!.id;
       }
     } catch (e) {

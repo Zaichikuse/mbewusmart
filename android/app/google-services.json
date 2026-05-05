@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "449707855092",
+    "project_id": "mbewusmart",
+    "storage_bucket": "mbewusmart.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:449707855092:android:3f4ed00f1337521c4da2a1",
+        "android_client_info": {
+          "package_name": "com.mbewusmart.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpOoJtXQp8P83mpGdNIBDBtQtK9kej8VM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:449707855092:android:344e4e77c800f3f74da2a1",
+        "android_client_info": {
+          "package_name": "com.mbewusmart.mbewu_smart"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpOoJtXQp8P83mpGdNIBDBtQtK9kej8VM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

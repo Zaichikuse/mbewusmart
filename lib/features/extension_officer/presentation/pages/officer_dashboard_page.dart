@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/di/injection_container.dart' as di;
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../alerts/presentation/bloc/alerts_bloc.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../../../reports/data/services/report_service.dart';
+import '../../../reports/domain/entities/diagnosis_report.dart';
 
 class OfficerDashboardPage extends StatefulWidget {
   const OfficerDashboardPage({super.key});
@@ -13,6 +16,8 @@ class OfficerDashboardPage extends StatefulWidget {
 }
 
 class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
+  late final ReportService _reportService = di.sl<ReportService>();
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +67,13 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                   ),
                   const SizedBox(height: 12),
                   _buildAlertsList(state, isChichewa),
+                  const SizedBox(height: 24),
+                  Text(
+                    isChichewa ? 'Ma Report' : 'Reports',
+                    style: AppTextStyles.headingSmall,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildReportsList(isChichewa),
                 ],
               ),
             ),
@@ -488,6 +500,290 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                       ),
                     ),
                   ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildReportsList(bool isChichewa) {
+    final officerId = context.read<AuthBloc>().state.user?.id;
+    if (officerId == null || officerId.trim().isEmpty) {
+      return _buildEmptyReports(isChichewa);
+    }
+
+    return StreamBuilder<List<DiagnosisReport>>(
+      stream: _reportService.watchReportsForOfficer(officerId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final reports = snapshot.data ?? const [];
+        if (reports.isEmpty) {
+          return _buildEmptyReports(isChichewa);
+        }
+
+        return ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: reports.length,
+          itemBuilder: (context, index) {
+            final report = reports[index];
+            return _buildReportCard(report, isChichewa);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyReports(bool isChichewa) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.assignment_turned_in,
+            size: 48,
+            color: AppTheme.healthyGreen,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            isChichewa ? 'Palibe report pano' : 'No reports yet',
+            style: AppTextStyles.bodyMedium,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReportCard(DiagnosisReport report, bool isChichewa) {
+    final statusColor = report.status == 'reviewed'
+        ? AppTheme.healthyGreen
+        : AppTheme.warningAmber;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: () => _showReportDetail(report, isChichewa),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.eco, color: statusColor),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          report.farmerName,
+                          style: AppTextStyles.headingSmall,
+                        ),
+                        Text(
+                          report.diagnosisName,
+                          style: AppTextStyles.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _getConfidenceColor(report.confidence),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${(report.confidence * 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.location_on,
+                    size: 16,
+                    color: AppTheme.textMuted,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    report.placeName ?? report.district ?? 'Unknown',
+                    style: AppTextStyles.caption,
+                  ),
+                  const Spacer(),
+                  Text(
+                    _formatDate(report.timestamp),
+                    style: AppTextStyles.caption,
+                  ),
+                ],
+              ),
+              if (report.notes.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.healthyGreen.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check, size: 16, color: AppTheme.healthyGreen),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isChichewa ? 'Wayankha kale' : 'Responded',
+                          style: TextStyle(color: AppTheme.healthyGreen),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showReportDetail(DiagnosisReport report, bool isChichewa) {
+    final responseController = TextEditingController(text: report.notes);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          maxChildSize: 0.95,
+          minChildSize: 0.5,
+          expand: false,
+          builder: (context, scrollController) {
+            return SingleChildScrollView(
+              controller: scrollController,
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    isChichewa ? 'Zambiri za Report' : 'Report Details',
+                    style: AppTextStyles.headingMedium,
+                  ),
+                  const SizedBox(height: 20),
+                  _buildDetailRow(
+                    isChichewa ? 'Mlimi' : 'Farmer',
+                    report.farmerName,
+                  ),
+                  _buildDetailRow(
+                    isChichewa ? 'Foni' : 'Phone',
+                    report.farmerPhone,
+                  ),
+                  _buildDetailRow(
+                    isChichewa ? 'Location' : 'Location',
+                    report.placeName ?? report.district ?? 'Unknown',
+                  ),
+                  _buildDetailRow(
+                    isChichewa ? 'Mbewo' : 'Crop',
+                    report.cropType,
+                  ),
+                  _buildDetailRow(
+                    isChichewa ? 'Matenda' : 'Diagnosis',
+                    report.diagnosisName,
+                  ),
+                  _buildDetailRow(
+                    isChichewa ? 'Confidence' : 'Confidence',
+                    '${(report.confidence * 100).toStringAsFixed(0)}%',
+                  ),
+                  _buildDetailRow(
+                    isChichewa ? 'Tsiku' : 'Date',
+                    _formatDate(report.timestamp),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    isChichewa ? 'Zolemba' : 'Notes',
+                    style: AppTextStyles.headingSmall,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: responseController,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      hintText: isChichewa
+                          ? 'Lembani zomwe mwapeza...'
+                          : 'Add your professional notes...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final notes = responseController.text.trim();
+                        await _reportService.updateReportNotes(
+                          reportId: report.id,
+                          notes: notes,
+                        );
+                        if (mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                isChichewa
+                                    ? 'Zolemba zasungidwa!'
+                                    : 'Notes saved!',
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      child: Text(isChichewa ? 'Sunga Zolemba' : 'Save Notes'),
+                    ),
+                  ),
                 ],
               ),
             );

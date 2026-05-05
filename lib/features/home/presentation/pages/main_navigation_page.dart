@@ -14,11 +14,11 @@ import '../../../extension_officer/presentation/pages/officer_dashboard_page.dar
 import '../../../manager/presentation/pages/manager_dashboard_page.dart';
 import '../../../agro_dealer/presentation/pages/dealer_dashboard_page.dart';
 import '../../../connectivity/presentation/bloc/connectivity_bloc.dart';
-import 'home_page.dart';
+import '.dart';
 
 class MainNavigationPage extends StatefulWidget {
   final int initialIndex;
-  
+
   const MainNavigationPage({super.key, this.initialIndex = 0});
 
   @override
@@ -28,7 +28,7 @@ class MainNavigationPage extends StatefulWidget {
 class _MainNavigationPageState extends State<MainNavigationPage> {
   late int _currentIndex;
   late final AiAssistantService _assistantService;
-  
+
   @override
   void initState() {
     super.initState();
@@ -61,10 +61,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
         children: [
           _buildConnectivityBanner(),
           Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: pages,
-            ),
+            child: IndexedStack(index: _currentIndex, children: pages),
           ),
         ],
       ),
@@ -154,7 +151,11 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                   SizedBox(width: 8),
                   Text(
                     'Offline Mode - Data saved locally',
-                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
               ),
@@ -171,30 +172,13 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   List<Widget> _getPagesForRole(UserRole role) {
     switch (role) {
       case UserRole.farmer:
-        return const [
-          HomePage(),
-          ScanPage(),
-          HistoryPage(),
-          SettingsPage(),
-        ];
+        return const [HomePage(), ScanPage(), HistoryPage(), SettingsPage()];
       case UserRole.extensionOfficer:
-        return const [
-          OfficerDashboardPage(),
-          HistoryPage(),
-          SettingsPage(),
-        ];
+        return const [OfficerDashboardPage(), HistoryPage(), SettingsPage()];
       case UserRole.agricultureManager:
-        return const [
-          ManagerDashboardPage(),
-          HistoryPage(),
-          SettingsPage(),
-        ];
+        return const [ManagerDashboardPage(), HistoryPage(), SettingsPage()];
       case UserRole.agroDealer:
-        return const [
-          DealerDashboardPage(),
-          HistoryPage(),
-          SettingsPage(),
-        ];
+        return const [DealerDashboardPage(), HistoryPage(), SettingsPage()];
     }
   }
 

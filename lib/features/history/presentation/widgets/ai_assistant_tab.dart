@@ -6,8 +6,15 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/di/injection_container.dart' as di;
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../diagnosis/domain/entities/diagnosis_result.dart';
+import '../../../diagnosis/domain/entities/crop_type.dart';
+import '../../../auth/presentation/bloc/auth_state.dart' show AuthStatus;
 import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import '../../../location/presentation/bloc/location_bloc.dart';
+import '../../../reports/data/services/report_service.dart';
+import '../../../alerts/presentation/bloc/alerts_bloc.dart';
+import '../../../alerts/domain/entities/alert.dart';
+import 'package:mbewu_smart/features/location/domain/entities/extension_officer.dart';
+import 'package:mbewu_smart/features/location/domain/entities/agro_dealer.dart';
 
 class AiAssistantTab extends StatefulWidget {
   final bool isChichewa;
@@ -16,6 +23,9 @@ class AiAssistantTab extends StatefulWidget {
   final VoidCallback? onClose;
   final String? pageContext;
   final String? initialPrompt;
+  final ExtensionOfficer? initialNearestOfficer;
+  final AgroDealer? initialNearestDealer;
+  final String? initialLocationName;
 
   const AiAssistantTab({
     super.key,
@@ -25,6 +35,9 @@ class AiAssistantTab extends StatefulWidget {
     this.onClose,
     this.pageContext,
     this.initialPrompt,
+    this.initialNearestOfficer,
+    this.initialNearestDealer,
+    this.initialLocationName,
   });
 
   @override
@@ -352,7 +365,18 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
         ? 'Ndithandizeni ndi thandizo lapafupi potengera malo anga. Nditchulireni agro-dealer ndi afesa officer omwe ali pafupi, ma phone awo, ndi sitepe yoyamba yomwe ndichite tsopano.'
         : 'Using my current location, give me nearby support. List the nearest agro-dealer and extension officer, their phone numbers, and the first action I should take now.';
 
-    await _sendPrompt(prompt, forcedLocationState: locationState);
+    final aiText = await _sendPrompt(
+      prompt,
+      forcedLocationState: locationState,
+    );
+
+    if (!mounted) return;
+
+    if (aiText != null && aiText.isNotEmpty) {
+      await _showAssistantResponseModal(aiText);
+    }
+
+    await _notifyNearbyHelpTargets(locationState);
   }
 
   Future<void> _sendNearbyDealerHelp() async {
@@ -362,7 +386,18 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
         ? 'Ndipezeni agro-dealer wapafupi pogwiritsa ntchito malo anga. Perekani dzina, dera, nambala ya foni, ndi mankhwala oyenera kutengera zotsatira zanga.'
         : 'Find the nearest agro-dealer using my current location. Provide name, district, phone number, and the most relevant remedy based on my latest diagnosis context.';
 
-    await _sendPrompt(prompt, forcedLocationState: locationState);
+    final aiText = await _sendPrompt(
+      prompt,
+      forcedLocationState: locationState,
+    );
+
+    if (!mounted) return;
+
+    if (aiText != null && aiText.isNotEmpty) {
+      await _showAssistantResponseModal(aiText);
+    }
+
+    await _notifyNearbyHelpTargets(locationState);
   }
 
   Widget _buildInputBar() {
@@ -400,12 +435,12 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
     );
   }
 
-  Future<void> _sendPrompt(
+  Future<String?> _sendPrompt(
     String text, {
     LocationState? forcedLocationState,
   }) async {
     final prompt = text.trim();
-    if (prompt.isEmpty || _isLoading) return;
+    if (prompt.isEmpty || _isLoading) return null;
 
     final userMessage = AiChatMessage(
       role: 'user',
@@ -426,21 +461,28 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
     final locationState =
         forcedLocationState ?? context.read<LocationBloc>().state;
 
+    final AgroDealer? nearestDealerParam = (locationState is LocationLoaded)
+        ? locationState.nearestDealer
+        : widget.initialNearestDealer;
+
+    final ExtensionOfficer? nearestOfficerParam =
+        (locationState is LocationLoaded)
+        ? locationState.nearestOfficer
+        : widget.initialNearestOfficer;
+
+    final String? locationNameParam = (locationState is LocationLoaded)
+        ? locationState.location.placeName
+        : widget.initialLocationName;
+
     final aiText = await _assistantService.askQuestion(
       prompt: prompt,
       isChichewa: widget.isChichewa,
       history: _messages,
       diagnosis: _resolveDiagnosisContext(),
       userId: _currentUserId,
-      nearestDealer: locationState is LocationLoaded
-          ? locationState.nearestDealer
-          : null,
-      nearestOfficer: locationState is LocationLoaded
-          ? locationState.nearestOfficer
-          : null,
-      locationName: locationState is LocationLoaded
-          ? locationState.location.placeName
-          : null,
+      nearestDealer: nearestDealerParam,
+      nearestOfficer: nearestOfficerParam,
+      locationName: locationNameParam,
       pageContext: widget.pageContext,
     );
 
@@ -452,7 +494,7 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
       diagnosisId: _resolveDiagnosisContext()?.id,
     );
 
-    if (!mounted) return;
+    if (!mounted) return aiText;
 
     setState(() {
       _messages = [..._messages, assistantMessage];
@@ -465,6 +507,129 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
       userId: _currentUserId,
     );
     _scrollToBottom();
+    return aiText;
+  }
+
+  Future<void> _notifyNearbyHelpTargets(LocationState locationState) async {
+    final authState = context.read<AuthBloc>().state;
+    final diagnosis = _resolveDiagnosisContext();
+
+    final farmerName = authState.user?.fullName ?? 'Unknown Farmer';
+    final farmerPhone = authState.user?.phoneNumber ?? 'Unknown';
+    final locationText = locationState is LocationLoaded
+        ? '${locationState.location.placeName ?? ''}${locationState.location.district != null ? ', ${locationState.location.district}' : ''}'
+        : '';
+
+    final alert = Alert(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      farmerName: farmerName,
+      farmerPhone: farmerPhone,
+      location: locationText,
+      cropName: diagnosis == null
+          ? 'Unknown'
+          : (widget.isChichewa
+                ? diagnosis.cropType.displayNameChichewa
+                : diagnosis.cropType.displayName),
+      diagnosisName: diagnosis == null
+          ? 'Unknown'
+          : (widget.isChichewa
+                ? diagnosis.diagnosisNameChichewa
+                : diagnosis.diagnosisName),
+      confidence: diagnosis?.confidence ?? 0.0,
+      timestamp: DateTime.now(),
+      note: widget.isChichewa
+          ? 'Farmer requested nearby help via AI assistant.'
+          : 'Farmer requested nearby help via AI assistant.',
+    );
+
+    bool alertSent = false;
+    bool reportSent = false;
+
+    try {
+      context.read<AlertsBloc>().add(AlertSent(alert));
+      alertSent = true;
+    } catch (_) {
+      alertSent = false;
+    }
+
+    if (authState.status == AuthStatus.authenticated &&
+        authState.user != null &&
+        diagnosis != null) {
+      try {
+        final reportService = di.sl<ReportService>();
+        await reportService.createReport(
+          diagnosis: diagnosis,
+          farmer: authState.user!,
+          location: locationState is LocationLoaded
+              ? locationState.location
+              : null,
+          nearestOfficer: locationState is LocationLoaded
+              ? locationState.nearestOfficer
+              : null,
+        );
+        reportSent = true;
+      } catch (_) {
+        reportSent = false;
+      }
+    }
+
+    if (!mounted) return;
+
+    final message = widget.isChichewa
+        ? (reportSent
+              ? 'Chidziwitso chatumizidwa kwa manager ndi afesa officer. Alert yasungidwa.'
+              : (alertSent
+                    ? 'Alert yasungidwa. Report sinatumizidwe pano.'
+                    : 'Talephera kutumiza alert/report.'))
+        : (reportSent
+              ? 'Notification sent to manager and extension officer. Alert saved.'
+              : (alertSent
+                    ? 'Alert saved. Report could not be sent right now.'
+                    : 'Failed to send alert/report.'));
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _showAssistantResponseModal(String responseText) async {
+    if (!mounted) return;
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.smart_toy, color: AppTheme.primaryGreen),
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.isChichewa ? 'Yankho la AI' : 'AI Response',
+                    style: AppTextStyles.headingSmall,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(responseText, style: AppTextStyles.bodyMedium),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(widget.isChichewa ? 'Tsekani' : 'Close'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _scrollToBottom() {

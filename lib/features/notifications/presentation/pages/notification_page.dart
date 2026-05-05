@@ -80,8 +80,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            isChichewa 
-                ? 'Mauthenga adzawonekera apa' 
+            isChichewa
+                ? 'Mauthenga adzawonekera apa'
                 : 'Notifications will appear here',
             style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
           ),
@@ -100,8 +100,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   Widget _buildNotificationTile(AppNotification notification) {
-    final isChichewa = LocalizationHelper.isChichewa(context);
-
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: notification.isRead ? Colors.white : Colors.blue[50],
@@ -117,7 +115,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
         title: Text(
           notification.title,
           style: AppTextStyles.bodyLarge.copyWith(
-            fontWeight: notification.isRead ? FontWeight.normal : FontWeight.bold,
+            fontWeight: notification.isRead
+                ? FontWeight.normal
+                : FontWeight.bold,
           ),
         ),
         subtitle: Column(
@@ -140,7 +140,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 if (notification.epa != null) ...[
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: AppTheme.primaryGreen.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
@@ -185,18 +188,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
       // Navigate to disease details
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(LocalizationHelper.isChichewa(context)
-              ? 'Kuwona zambiri za matenda...'
-              : 'Viewing disease details...'),
+          content: Text(
+            LocalizationHelper.isChichewa(context)
+                ? 'Kuwona zambiri za matenda...'
+                : 'Viewing disease details...',
+          ),
         ),
       );
     } else if (notification.type == NotificationType.messageReceived) {
       // Navigate to conversation
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(LocalizationHelper.isChichewa(context)
-              ? 'Kukugwira kanembo...'
-              : 'Opening conversation...'),
+          content: Text(
+            LocalizationHelper.isChichewa(context)
+                ? 'Kukugwira kanembo...'
+                : 'Opening conversation...',
+          ),
         ),
       );
     }
@@ -213,9 +220,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
             children: [
               ListTile(
                 leading: const Icon(Icons.check_circle),
-                title: Text(LocalizationHelper.isChichewa(context)
-                    ? 'Sungani ngati adawoneka'
-                    : 'Mark as read'),
+                title: Text(
+                  LocalizationHelper.isChichewa(context)
+                      ? 'Sungani ngati adawoneka'
+                      : 'Mark as read',
+                ),
                 onTap: () {
                   Navigator.pop(bottomSheetContext);
                   _notificationService.markAsRead(notification.id);
@@ -224,9 +233,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
               ),
               ListTile(
                 leading: const Icon(Icons.delete, color: AppTheme.errorRed),
-                title: Text(LocalizationHelper.isChichewa(context)
-                    ? 'Fatsa'
-                    : 'Delete'),
+                title: Text(
+                  LocalizationHelper.isChichewa(context) ? 'Fatsa' : 'Delete',
+                ),
                 onTap: () {
                   Navigator.pop(bottomSheetContext);
                   _notificationService.deleteNotification(notification.id);
@@ -240,15 +249,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
-  void _showClearAllDialog(BuildContext context, bool isChichewa, AppLocalizations? appLoc) {
+  void _showClearAllDialog(
+    BuildContext context,
+    bool isChichewa,
+    AppLocalizations? appLoc,
+  ) {
     showDialog(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
           title: Text(isChichewa ? 'Kufafaniza Zonse?' : 'Clear All?'),
-          content: Text(isChichewa 
-              ? 'Kodi mukufuna kufafaniza mauthenga onse?'
-              : 'Are you sure you want to clear all notifications?'),
+          content: Text(
+            isChichewa
+                ? 'Kodi mukufuna kufafaniza mauthenga onse?'
+                : 'Are you sure you want to clear all notifications?',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),

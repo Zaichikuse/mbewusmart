@@ -1,4 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:equatable/equatable.dart';
 import '../../domain/entities/location_info.dart';
 import '../../domain/entities/extension_officer.dart';
@@ -94,28 +95,42 @@ class LocationBloc extends Bloc<LocationEvent, LocationState> {
   ) async {
     emit(LocationLoading());
 
+    final permission = await Geolocator.checkPermission();
+    final requestedPermission =
+        permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever
+        ? await Geolocator.requestPermission()
+        : permission;
+
+    if (requestedPermission == LocationPermission.denied ||
+        requestedPermission == LocationPermission.deniedForever) {
+      emit(const LocationError('Location permission denied'));
+      return;
+    }
+
     final result = await getCurrentLocation();
 
-    result.fold(
-      (failure) => emit(LocationError(failure.message)),
-      (location) async {
-        // Also find nearest officer and dealer
-        final officerResult = await getNearestExtensionOfficer(
-          location.latitude,
-          location.longitude,
-        );
-        final dealerResult = await getNearestAgroDealer(
-          location.latitude,
-          location.longitude,
-        );
+    result.fold((failure) => emit(LocationError(failure.message)), (
+      location,
+    ) async {
+      // Also find nearest officer and dealer
+      final officerResult = await getNearestExtensionOfficer(
+        location.latitude,
+        location.longitude,
+      );
+      final dealerResult = await getNearestAgroDealer(
+        location.latitude,
+        location.longitude,
+      );
 
-        emit(LocationLoaded(
+      emit(
+        LocationLoaded(
           location: location,
           nearestOfficer: officerResult.fold((l) => null, (r) => r),
           nearestDealer: dealerResult.fold((l) => null, (r) => r),
-        ));
-      },
-    );
+        ),
+      );
+    });
   }
 
   Future<void> _onFindNearestOfficer(
@@ -124,8 +139,11 @@ class LocationBloc extends Bloc<LocationEvent, LocationState> {
   ) async {
     if (state is LocationLoaded) {
       final currentState = state as LocationLoaded;
-      final result = await getNearestExtensionOfficer(event.latitude, event.longitude);
-      
+      final result = await getNearestExtensionOfficer(
+        event.latitude,
+        event.longitude,
+      );
+
       result.fold(
         (failure) => null,
         (officer) => emit(currentState.copyWith(nearestOfficer: officer)),
@@ -139,8 +157,11 @@ class LocationBloc extends Bloc<LocationEvent, LocationState> {
   ) async {
     if (state is LocationLoaded) {
       final currentState = state as LocationLoaded;
-      final result = await getNearestAgroDealer(event.latitude, event.longitude);
-      
+      final result = await getNearestAgroDealer(
+        event.latitude,
+        event.longitude,
+      );
+
       result.fold(
         (failure) => null,
         (dealer) => emit(currentState.copyWith(nearestDealer: dealer)),

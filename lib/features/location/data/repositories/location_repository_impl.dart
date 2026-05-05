@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:dartz/dartz.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
@@ -13,6 +12,16 @@ class LocationRepositoryImpl implements LocationRepository {
   final MalawiDataSource malawiDataSource;
 
   LocationRepositoryImpl({required this.malawiDataSource});
+
+  // ── Class-level distance calculator ───────────────────────────────
+  double _calculateDistance(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
+    return Geolocator.distanceBetween(lat1, lon1, lat2, lon2);
+  }
 
   @override
   Future<Either<Failure, LocationInfo>> getCurrentLocation() async {
@@ -31,7 +40,9 @@ class LocationRepositoryImpl implements LocationRepository {
       }
 
       if (permission == LocationPermission.deniedForever) {
-        return const Left(LocationFailure('Location permissions are permanently denied'));
+        return const Left(
+          LocationFailure('Location permissions are permanently denied'),
+        );
       }
 
       Position position = await Geolocator.getCurrentPosition(
@@ -46,25 +57,27 @@ class LocationRepositoryImpl implements LocationRepository {
           position.latitude,
           position.longitude,
         );
-        
+
         if (placemarks.isNotEmpty) {
           final placemark = placemarks.first;
-          placeName = placemark.subAdministrativeArea ?? placemark.administrativeArea;
+          placeName =
+              placemark.subAdministrativeArea ?? placemark.administrativeArea;
           district = placemark.administrativeArea;
         }
       } catch (e) {
-        // Geocoding failed, try to match with Malawi districts
         district = _findNearestDistrict(position.latitude, position.longitude);
         placeName = district;
       }
 
-      return Right(LocationInfo(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        placeName: placeName,
-        district: district,
-        region: 'Malawi',
-      ));
+      return Right(
+        LocationInfo(
+          latitude: position.latitude,
+          longitude: position.longitude,
+          placeName: placeName,
+          district: district,
+          region: 'Malawi',
+        ),
+      );
     } catch (e) {
       return Left(LocationFailure('Failed to get location: ${e.toString()}'));
     }
@@ -76,55 +89,39 @@ class LocationRepositoryImpl implements LocationRepository {
     double lng,
   ) async {
     try {
-      final officers = malawiDataSource.getAllExtensionOfficers();
-      if (officers.isEmpty) {
+      final nearest = malawiDataSource.getNearestExtensionOfficer(lat, lng);
+      if (nearest == null) {
         return const Left(LocationFailure('No extension officers available'));
       }
-
-      ExtensionOfficer nearest = officers.first;
-      double minDistance = double.infinity;
-
-      for (final officer in officers) {
-        double distance = _calculateDistance(lat, lng, officer.latitude, officer.longitude);
-        if (distance < minDistance) {
-          minDistance = distance;
-          nearest = officer;
-        }
-      }
-
       return Right(nearest);
     } catch (e) {
-      return Left(LocationFailure('Failed to find nearest officer: ${e.toString()}'));
+      return Left(
+        LocationFailure('Failed to find nearest officer: ${e.toString()}'),
+      );
     }
   }
 
   @override
-  Future<Either<Failure, AgroDealer>> getNearestAgroDealer(double lat, double lng) async {
+  Future<Either<Failure, AgroDealer>> getNearestAgroDealer(
+    double lat,
+    double lng,
+  ) async {
     try {
-      final dealers = malawiDataSource.getAllAgroDealers();
-      if (dealers.isEmpty) {
+      final nearest = malawiDataSource.getNearestAgroDealer(lat, lng);
+      if (nearest == null) {
         return const Left(LocationFailure('No agro-dealers available'));
       }
-
-      AgroDealer nearest = dealers.first;
-      double minDistance = double.infinity;
-
-      for (final dealer in dealers) {
-        double distance = _calculateDistance(lat, lng, dealer.latitude, dealer.longitude);
-        if (distance < minDistance) {
-          minDistance = distance;
-          nearest = dealer;
-        }
-      }
-
       return Right(nearest);
     } catch (e) {
-      return Left(LocationFailure('Failed to find nearest dealer: ${e.toString()}'));
+      return Left(
+        LocationFailure('Failed to find nearest dealer: ${e.toString()}'),
+      );
     }
   }
 
   @override
-  Future<Either<Failure, List<ExtensionOfficer>>> getAllExtensionOfficers() async {
+  Future<Either<Failure, List<ExtensionOfficer>>>
+  getAllExtensionOfficers() async {
     try {
       return Right(malawiDataSource.getAllExtensionOfficers());
     } catch (e) {
@@ -142,14 +139,18 @@ class LocationRepositoryImpl implements LocationRepository {
   }
 
   @override
-  Future<Either<Failure, String>> getLocationName(double lat, double lng) async {
+  Future<Either<Failure, String>> getLocationName(
+    double lat,
+    double lng,
+  ) async {
     try {
       List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
       if (placemarks.isNotEmpty) {
         final placemark = placemarks.first;
-        final name = placemark.subAdministrativeArea ?? 
-                     placemark.administrativeArea ?? 
-                     'Unknown';
+        final name =
+            placemark.subAdministrativeArea ??
+            placemark.administrativeArea ??
+            'Unknown';
         return Right(name);
       }
       return const Right('Unknown Location');
@@ -165,7 +166,8 @@ class LocationRepositoryImpl implements LocationRepository {
 
     for (final entry in MalawiDataSource.districts.entries) {
       double distance = _calculateDistance(
-        lat, lng,
+        lat,
+        lng,
         entry.value['lat']!,
         entry.value['lng']!,
       );
@@ -176,21 +178,6 @@ class LocationRepositoryImpl implements LocationRepository {
     }
 
     return nearestDistrict;
-  }
-
-  double _calculateDistance(double lat1, double lng1, double lat2, double lng2) {
-    const double earthRadius = 6371; // km
-    double dLat = _toRadians(lat2 - lat1);
-    double dLng = _toRadians(lng2 - lng1);
-    double a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_toRadians(lat1)) * cos(_toRadians(lat2)) *
-        sin(dLng / 2) * sin(dLng / 2);
-    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return earthRadius * c;
-  }
-
-  double _toRadians(double degree) {
-    return degree * pi / 180;
   }
 }
 

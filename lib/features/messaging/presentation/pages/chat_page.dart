@@ -7,17 +7,14 @@ import '../../domain/entities/message.dart';
 import '../../domain/entities/conversation.dart';
 import '../bloc/messaging_bloc.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
-import '../../../auth/presentation/bloc/auth_state.dart' show AuthState, AuthStatus;
+import '../../../auth/presentation/bloc/auth_state.dart' show AuthStatus;
 import '../../../auth/domain/entities/user.dart';
 import '../widgets/message_bubble.dart';
 
 class ChatPage extends StatefulWidget {
   final Conversation conversation;
 
-  const ChatPage({
-    super.key,
-    required this.conversation,
-  });
+  const ChatPage({super.key, required this.conversation});
 
   @override
   _ChatPageState createState() => _ChatPageState();
@@ -45,7 +42,8 @@ class _ChatPageState extends State<ChatPage> {
   String? _getCurrentUserId() {
     try {
       final authState = context.read<AuthBloc>().state;
-      if (authState.status == AuthStatus.authenticated && authState.user != null) {
+      if (authState.status == AuthStatus.authenticated &&
+          authState.user != null) {
         return authState.user!.id;
       }
     } catch (e) {
@@ -76,8 +74,10 @@ class _ChatPageState extends State<ChatPage> {
       id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
       conversationId: widget.conversation.id,
       senderId: _currentUserId!,
-      receiverId: widget.conversation.participantIds
-          .firstWhere((id) => id != _currentUserId, orElse: () => ''),
+      receiverId: widget.conversation.participantIds.firstWhere(
+        (id) => id != _currentUserId,
+        orElse: () => '',
+      ),
       content: content,
       timestamp: DateTime.now(),
       type: MessageType.text,
@@ -105,8 +105,10 @@ class _ChatPageState extends State<ChatPage> {
       id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
       conversationId: widget.conversation.id,
       senderId: _currentUserId!,
-      receiverId: widget.conversation.participantIds
-          .firstWhere((id) => id != _currentUserId, orElse: () => ''),
+      receiverId: widget.conversation.participantIds.firstWhere(
+        (id) => id != _currentUserId,
+        orElse: () => '',
+      ),
       content: diseaseInfo,
       timestamp: DateTime.now(),
       type: MessageType.report,
@@ -128,7 +130,9 @@ class _ChatPageState extends State<ChatPage> {
           children: [
             Text(
               widget.conversation.getDisplayName(UserRole.farmer),
-              style: AppTextStyles.bodyLarge.copyWith(fontWeight: FontWeight.bold),
+              style: AppTextStyles.bodyLarge.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
             if (widget.conversation.targetEpa != null)
               Text(
@@ -138,10 +142,7 @@ class _ChatPageState extends State<ChatPage> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: () {},
-          ),
+          IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
         ],
       ),
       body: Column(
@@ -284,9 +285,16 @@ class _ChatPageState extends State<ChatPage> {
               ),
               const SizedBox(height: 16),
               ListTile(
-                leading: const Icon(Icons.warning_amber, color: AppTheme.warningAmber),
+                leading: const Icon(
+                  Icons.warning_amber,
+                  color: AppTheme.warningAmber,
+                ),
                 title: Text(appLoc?.reportDisease ?? 'Report Disease'),
-                subtitle: Text(isChichewa ? 'Tumiza report ya matenda' : 'Send disease report'),
+                subtitle: Text(
+                  isChichewa
+                      ? 'Tumiza report ya matenda'
+                      : 'Send disease report',
+                ),
                 onTap: () {
                   Navigator.pop(bottomSheetContext);
                   _sendReport('Disease report from crop scan');
@@ -295,7 +303,9 @@ class _ChatPageState extends State<ChatPage> {
               ListTile(
                 leading: const Icon(Icons.image, color: AppTheme.primaryGreen),
                 title: Text(appLoc?.uploadPhoto ?? 'Upload Photo'),
-                subtitle: Text(isChichewa ? 'Lemba chithunzi' : 'Upload crop image'),
+                subtitle: Text(
+                  isChichewa ? 'Lemba chithunzi' : 'Upload crop image',
+                ),
                 onTap: () {
                   Navigator.pop(bottomSheetContext);
                 },

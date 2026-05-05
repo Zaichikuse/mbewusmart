@@ -15,21 +15,16 @@ class DiagnosisLocalDataSourceImpl implements DiagnosisLocalDataSource {
   @override
   Future<List<DiagnosisResult>> getHistory(String? userId) async {
     try {
-      final allDiagnoses = diagnosisBox.values.toList();
-      final diagnoses = <DiagnosisResult>[];
-      
-      for (final item in allDiagnoses) {
-        if (item is Map) {
-          final diagnosis = DiagnosisResult.fromMap(Map<String, dynamic>.from(item));
-          if (userId == null || diagnosis.userId == userId) {
-            diagnoses.add(diagnosis);
-          }
-        }
-      }
-      
-      // Sort by date, most recent first
+      final diagnoses = diagnosisBox.values
+          .whereType<Map>()
+          .map(
+            (item) => DiagnosisResult.fromMap(Map<String, dynamic>.from(item)),
+          )
+          .where((diagnosis) => userId == null || diagnosis.userId == userId)
+          .toList();
+
       diagnoses.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      return diagnoses;
+      return diagnoses.take(20).toList();
     } catch (e) {
       return [];
     }

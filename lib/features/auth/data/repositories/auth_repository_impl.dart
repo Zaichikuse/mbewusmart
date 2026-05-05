@@ -1,19 +1,25 @@
+import 'dart:async';
+
 import 'package:dartz/dartz.dart';
+import 'package:flutter/foundation.dart';
 import '../../../../core/error/exceptions.dart';
 import '../../../../core/error/failures.dart';
+import '../../../../core/services/user_directory_service.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../datasources/auth_local_datasource.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
   final AuthLocalDataSource localDataSource;
+  final UserDirectoryService userDirectoryService;
 
-  AuthRepositoryImpl(this.localDataSource);
+  AuthRepositoryImpl(this.localDataSource, this.userDirectoryService);
 
   @override
   Future<Either<Failure, User>> login(String phoneNumber, String? pin) async {
     try {
       final user = await localDataSource.login(phoneNumber, pin);
+      _syncUserInBackground(user, 'login');
       return Right(user);
     } on AuthException catch (e) {
       return Left(AuthFailure(e.message));
@@ -38,6 +44,7 @@ class AuthRepositoryImpl implements AuthRepository {
         role: role,
         pin: pin,
       );
+      _syncUserInBackground(user, 'registration');
       return Right(user);
     } on AuthException catch (e) {
       return Left(AuthFailure(e.message));
@@ -75,6 +82,18 @@ class AuthRepositoryImpl implements AuthRepository {
       return Right(result);
     } catch (e) {
       return const Right(false);
+    }
+  }
+
+  void _syncUserInBackground(User user, String source) {
+    unawaited(_syncUser(user, source));
+  }
+
+  Future<void> _syncUser(User user, String source) async {
+    try {
+      await userDirectoryService.syncUser(user);
+    } catch (e) {
+      debugPrint('User sync failed during $source for ${user.id}: $e');
     }
   }
 }

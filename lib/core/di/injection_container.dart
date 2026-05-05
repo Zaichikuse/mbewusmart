@@ -36,6 +36,9 @@ import '../../features/messaging/domain/repositories/messaging_repository.dart';
 import '../../features/messaging/presentation/bloc/messaging_bloc.dart';
 import '../../features/notifications/data/services/notification_service.dart';
 import '../services/ai_assistant_service.dart';
+import '../services/fcm_notification_service.dart';
+import '../services/user_directory_service.dart';
+import '../../features/reports/data/services/report_service.dart';
 
 final sl = GetIt.instance;
 
@@ -66,7 +69,9 @@ Future<void> initDependencies() async {
     () => AlertsLocalDataSourceImpl(alertsBox),
   );
 
-  sl.registerLazySingleton<AuthRepository>(() => AuthRepositoryImpl(sl()));
+  sl.registerLazySingleton<AuthRepository>(
+    () => AuthRepositoryImpl(sl(), sl()),
+  );
 
   sl.registerLazySingleton<SettingsRepository>(
     () => SettingsRepositoryImpl(sl()),
@@ -99,6 +104,7 @@ Future<void> initDependencies() async {
       registerUseCase: sl(),
       logoutUseCase: sl(),
       getCurrentUserUseCase: sl(),
+      userDirectoryService: sl(),
     ),
   );
 
@@ -131,6 +137,14 @@ Future<void> initDependencies() async {
 
   // Notifications
   sl.registerLazySingleton(() => NotificationService.instance);
+
+  // Firebase reporting + directory
+  sl.registerLazySingleton(() => FcmNotificationService());
+  sl.registerLazySingleton(() => UserDirectoryService());
+  sl.registerLazySingleton(
+    () =>
+        ReportService(userDirectoryService: sl(), fcmNotificationService: sl()),
+  );
 
   // AI Assistant
   sl.registerLazySingleton(() => AiAssistantService(cacheBox: cacheBox));

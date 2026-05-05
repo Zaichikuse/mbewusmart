@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_event.dart';
 import 'features/settings/presentation/bloc/settings_bloc.dart';
-import 'features/settings/presentation/bloc/settings_bloc.dart' as settings_events;
+import 'features/settings/presentation/bloc/settings_bloc.dart'
+    as settings_events;
 import 'features/diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import 'features/location/presentation/bloc/location_bloc.dart';
 import 'features/alerts/presentation/bloc/alerts_bloc.dart';
@@ -16,6 +19,11 @@ import 'core/theme/app_theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('Firebase initialization failed: $e');
+  }
   await di.initDependencies();
   runApp(const MbewuSmartApp());
 }
@@ -39,7 +47,8 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
     super.initState();
     _authBloc = di.sl<AuthBloc>();
     _authBloc.add(AuthCheckRequested());
-    _settingsBloc = di.sl<SettingsBloc>()..add(settings_events.SettingsLoadRequested());
+    _settingsBloc = di.sl<SettingsBloc>()
+      ..add(settings_events.SettingsLoadRequested());
     _diagnosisBloc = di.sl<DiagnosisBloc>();
     _alertsBloc = di.sl<AlertsBloc>();
     _appRouter = AppRouter(authBloc: _authBloc);
@@ -63,26 +72,28 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
         BlocProvider<DiagnosisBloc>.value(value: _diagnosisBloc),
         BlocProvider<LocationBloc>(create: (_) => di.sl<LocationBloc>()),
         BlocProvider<AlertsBloc>.value(value: _alertsBloc),
-        BlocProvider<ConnectivityBloc>(create: (_) => di.sl<ConnectivityBloc>()..add(ConnectivityStarted())),
+        BlocProvider<ConnectivityBloc>(
+          create: (_) => di.sl<ConnectivityBloc>()..add(ConnectivityStarted()),
+        ),
       ],
       child: BlocBuilder<SettingsBloc, SettingsState>(
         builder: (context, settingsState) {
-          final locale = const Locale('en'); // always use English for Flutter system
+          final locale = const Locale(
+            'en',
+          ); // always use English for Flutter system
 
           return MaterialApp.router(
             title: 'MbewuSmart',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             locale: locale,
-            supportedLocales: const [
-              Locale('en'),
-            ],
+            supportedLocales: const [Locale('en')],
             localeResolutionCallback: (deviceLocale, supportedLocales) {
-          if (deviceLocale != null && deviceLocale.languageCode == 'ny') {
-          return const Locale('en');
-          }
-        return deviceLocale;
-   },
+              if (deviceLocale != null && deviceLocale.languageCode == 'ny') {
+                return const Locale('en');
+              }
+              return deviceLocale;
+            },
             routerConfig: _appRouter.router,
           );
         },
