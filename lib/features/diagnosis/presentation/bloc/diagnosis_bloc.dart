@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:uuid/uuid.dart';
@@ -15,9 +16,17 @@ abstract class DiagnosisEvent extends Equatable {
 
 class DiagnosisAnalyzeRequested extends DiagnosisEvent {
   final String imagePath;
+  final Uint8List imageBytes;
   final CropType cropType;
   final String? userId;
-  const DiagnosisAnalyzeRequested(this.imagePath, {required this.cropType, this.userId});
+
+  const DiagnosisAnalyzeRequested(
+    this.imagePath, {
+    required this.imageBytes,
+    required this.cropType,
+    this.userId,
+  });
+
   @override
   List<Object?> get props => [imagePath, cropType, userId];
 }
@@ -99,7 +108,11 @@ class DiagnosisBloc extends Bloc<DiagnosisEvent, DiagnosisState> {
   ) async {
     emit(DiagnosisAnalyzing(event.imagePath));
 
-    final result = await analyzeImageUseCase(event.imagePath, event.cropType);
+    final result = await analyzeImageUseCase(
+      event.imagePath,
+      event.cropType,
+      imageBytes: event.imageBytes,
+    );
 
     await result.fold(
       (failure) async => emit(DiagnosisError(failure.message)),
@@ -109,7 +122,18 @@ class DiagnosisBloc extends Bloc<DiagnosisEvent, DiagnosisState> {
           userId: event.userId ?? diagnosis.userId,
           timestamp: DateTime.now(),
         );
-        await saveDiagnosisUseCase(enrichedDiagnosis);
+
+        // Save to Hive — NEVER block the result if save fails
+        try {
+          final saveResult = await saveDiagnosisUseCase(enrichedDiagnosis);
+          saveResult.fold(
+            (failure) => print('Save error: ${failure.message}'),
+            (_) {},
+          );
+        } catch (e) {
+          print('Save error: $e');
+        }
+
         emit(DiagnosisSuccess(enrichedDiagnosis));
       },
     );
@@ -120,9 +144,7 @@ class DiagnosisBloc extends Bloc<DiagnosisEvent, DiagnosisState> {
     Emitter<DiagnosisState> emit,
   ) async {
     emit(DiagnosisLoading());
-
     final result = await getHistoryUseCase(event.userId);
-
     result.fold(
       (failure) => emit(DiagnosisError(failure.message)),
       (history) => emit(DiagnosisHistoryLoaded(history)),
@@ -133,13 +155,14 @@ class DiagnosisBloc extends Bloc<DiagnosisEvent, DiagnosisState> {
     DiagnosisSaveRequested event,
     Emitter<DiagnosisState> emit,
   ) async {
-    await saveDiagnosisUseCase(event.result);
+    try {
+      await saveDiagnosisUseCase(event.result);
+    } catch (e) {
+      print('[DiagnosisBloc] Manual save failed: $e');
+    }
   }
 
-  void _onReset(
-    DiagnosisReset event,
-    Emitter<DiagnosisState> emit,
-  ) {
+  void _onReset(DiagnosisReset event, Emitter<DiagnosisState> emit) {
     emit(DiagnosisInitial());
   }
 }

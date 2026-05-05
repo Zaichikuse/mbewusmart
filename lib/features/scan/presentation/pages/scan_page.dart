@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/farmer_messages.dart';
+import '../../../../core/di/injection_container.dart' as di;
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../diagnosis/domain/entities/diagnosis_result.dart';
 import '../../../diagnosis/domain/entities/crop_type.dart';
@@ -11,6 +12,7 @@ import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import '../../../location/presentation/bloc/location_bloc.dart';
 import '../../../location/domain/entities/extension_officer.dart';
 import '../../../location/domain/entities/agro_dealer.dart';
+import '../../../reports/data/services/report_service.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart'
     show AuthState, AuthStatus;
@@ -30,6 +32,13 @@ class _ScanPageState extends State<ScanPage> {
   final ImagePicker _picker = ImagePicker();
   CropType _selectedCrop = CropType.maize;
   static const double confidenceThreshold = 0.70;
+  late final ReportService _reportService = di.sl<ReportService>();
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<LocationBloc>().add(LocationGetCurrent());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,10 +53,6 @@ class _ScanPageState extends State<ScanPage> {
         listener: (context, state) {
           if (state is DiagnosisSuccess) {
             _showResultDialog(context, state, isChichewa);
-          } else if (state is DiagnosisError) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(state.message)));
           }
         },
         child: Padding(
@@ -275,12 +280,20 @@ class _ScanPageState extends State<ScanPage> {
       );
 
       if (image != null && mounted) {
+        // Read bytes immediately — fixes Android content URI bug
+        final imageBytes = await image.readAsBytes();
+
+        await Future.delayed(const Duration(seconds: 3));
+
+        if (!mounted) return;
+
         context.read<LocationBloc>().add(LocationGetCurrent());
         final authState = context.read<AuthBloc>().state;
 
         context.read<DiagnosisBloc>().add(
           DiagnosisAnalyzeRequested(
             image.path,
+            imageBytes: imageBytes,
             cropType: _selectedCrop,
             userId: authState.user?.id,
           ),
@@ -325,21 +338,20 @@ class _ScanPageState extends State<ScanPage> {
       nearestDealer = locationState.nearestDealer;
     }
 
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      barrierDismissible: false,
       builder: (dialogContext) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.85,
-          maxChildSize: 0.95,
-          minChildSize: 0.5,
-          expand: false,
-          builder: (context, scrollController) {
-            return SingleChildScrollView(
-              controller: scrollController,
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.85,
+            ),
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -386,10 +398,14 @@ class _ScanPageState extends State<ScanPage> {
                               ),
                             ),
                             Text(
-                              isChichewa
-                                  ? result.diagnosisNameChichewa
-                                  : result.diagnosisName,
+                              result.diagnosisName,
                               style: AppTextStyles.headingMedium,
+                            ),
+                            Text(
+                              result.diagnosisNameChichewa,
+                              style: AppTextStyles.bodyMedium.copyWith(
+                                color: AppTheme.textMuted,
+                              ),
                             ),
                           ],
                         ),
@@ -412,78 +428,82 @@ class _ScanPageState extends State<ScanPage> {
                     const SizedBox(height: 20),
 
                     // Scientific Name
-                    if (result.scientificName != null)
-                      _buildDetailSection(
-                        isChichewa ? 'Dzina Lolimbikira' : 'Scientific Name',
-                        result.scientificName!,
-                        isChichewa,
-                        Icons.science,
-                      ),
+                    _buildDetailSection(
+                      isChichewa ? 'Dzina Lolimbikira' : 'Scientific Name',
+                      _resolveDetailText(result.scientificName, isChichewa),
+                      isChichewa,
+                      Icons.science,
+                    ),
 
                     // Causing Factors
-                    if (result.causingFactors != null)
-                      _buildDetailSection(
-                        isChichewa ? 'Zoyambitsa' : 'Causing Factors',
-                        result.causingFactors!,
-                        isChichewa,
-                        Icons.warning_amber,
-                      ),
+                    _buildDetailSection(
+                      isChichewa ? 'Zoyambitsa' : 'Causing Factors',
+                      _resolveDetailText(result.causingFactors, isChichewa),
+                      isChichewa,
+                      Icons.warning_amber,
+                    ),
 
                     // Treatment
-                    if (result.treatment != null)
-                      _buildDetailSection(
-                        isChichewa ? 'Mankhwala' : 'Treatment',
-                        result.treatment!,
-                        isChichewa,
-                        Icons.healing,
-                      ),
+                    _buildDetailSection(
+                      isChichewa ? 'Mankhwala' : 'Treatment',
+                      _resolveDetailText(result.treatment, isChichewa),
+                      isChichewa,
+                      Icons.healing,
+                    ),
 
                     // Pesticide/Remedy
-                    if (result.pesticideRemedy != null)
-                      _buildDetailSection(
-                        isChichewa ? 'Mankhwala' : 'Pesticide/Remedy',
-                        result.pesticideRemedy!,
-                        isChichewa,
-                        Icons.medication,
-                      ),
+                    _buildDetailSection(
+                      isChichewa ? 'Mankhwala' : 'Pesticide/Remedy',
+                      _resolveDetailText(result.pesticideRemedy, isChichewa),
+                      isChichewa,
+                      Icons.medication,
+                    ),
 
                     // Prevention
-                    if (result.prevention != null)
-                      _buildDetailSection(
-                        isChichewa ? 'Cholinga' : 'Prevention',
-                        result.prevention!,
-                        isChichewa,
-                        Icons.shield,
-                      ),
+                    _buildDetailSection(
+                      isChichewa ? 'Cholinga' : 'Prevention',
+                      _resolveDetailText(result.prevention, isChichewa),
+                      isChichewa,
+                      Icons.shield,
+                    ),
 
                     // Agro-dealer Contact
-                    if (nearestDealer != null) ...[
-                      const SizedBox(height: 20),
-                      _buildContactCard(
+                    const SizedBox(height: 20),
+                    if (nearestDealer != null)
+                      () {
+                        final dealer = nearestDealer!;
+                        return _buildContactCard(
+                          title: isChichewa ? 'Agro-Dealer' : 'Agro-Dealer',
+                          name: dealer.name,
+                          phone: dealer.phone,
+                          latitude: dealer.latitude,
+                          longitude: dealer.longitude,
+                          icon: Icons.store,
+                          color: AppTheme.primaryGreen,
+                          onCall: () => _makePhoneCall(dealer.phone),
+                          isChichewa: isChichewa,
+                        );
+                      }()
+                    else
+                      _buildMissingContactCard(
                         title: isChichewa ? 'Agro-Dealer' : 'Agro-Dealer',
-                        name: nearestDealer.name,
-                        phone: nearestDealer.phone,
-                        latitude: nearestDealer.latitude,
-                        longitude: nearestDealer.longitude,
                         icon: Icons.store,
                         color: AppTheme.primaryGreen,
-                        onCall: () => _makePhoneCall(nearestDealer!.phone),
                         isChichewa: isChichewa,
                       ),
-                      const SizedBox(height: 12),
-                      _buildMessageActionButton(
-                        label: isChichewa
-                            ? 'Lowa Fono la Agro Dealer'
-                            : 'Contact Agro Dealer',
-                        icon: Icons.message,
-                        color: AppTheme.primaryGreen,
-                        onTap: () => _contactAgroDealer(
-                          context,
-                          nearestDealer,
-                          isChichewa,
-                        ),
+                    const SizedBox(height: 12),
+                    _buildMessageActionButton(
+                      label: isChichewa
+                          ? 'Lowa Fono la Agro Dealer'
+                          : 'Contact Agro Dealer',
+                      icon: Icons.message,
+                      color: AppTheme.primaryGreen,
+                      onTap: () => _contactAgroDealer(
+                        context,
+                        nearestDealer,
+                        isChichewa,
                       ),
-                    ],
+                    ),
 
                     // Report to Manager Button
                     const SizedBox(height: 12),
@@ -519,8 +539,8 @@ class _ScanPageState extends State<ScanPage> {
                           Expanded(
                             child: Text(
                               isChichewa
-                                  ? 'Zotsatira zikumveka bwino. Fotokozani kwa Afesa Officer kuti muthe kulandira thandizo lalikulu.'
-                                  : 'Results are uncertain. Please consult an Extension Officer for better assistance.',
+                                  ? 'Zotsatira zikumveka bwino. Chonde funsani agro-dealer, Afesa Officer, kapena funsani AI kuti mupeze chithandizo.'
+                                  : 'Results are uncertain. Consider contacting a nearby agro-dealer, an Extension Officer, or ask the AI assistant for next steps.',
                               style: AppTextStyles.bodyMedium,
                             ),
                           ),
@@ -532,36 +552,46 @@ class _ScanPageState extends State<ScanPage> {
 
                     // Extension Officer Contact
                     if (nearestOfficer != null)
-                      _buildContactCard(
+                      () {
+                        final officer = nearestOfficer!;
+                        return _buildContactCard(
+                          title: isChichewa
+                              ? 'Afesa Officer'
+                              : 'Extension Officer',
+                          name: officer.name,
+                          phone: officer.phone,
+                          latitude: officer.latitude,
+                          longitude: officer.longitude,
+                          icon: Icons.person,
+                          color: AppTheme.accentOrange,
+                          onCall: () => _makePhoneCall(officer.phone),
+                          isChichewa: isChichewa,
+                        );
+                      }()
+                    else
+                      _buildMissingContactCard(
                         title: isChichewa
                             ? 'Afesa Officer'
                             : 'Extension Officer',
-                        name: nearestOfficer.name,
-                        phone: nearestOfficer.phone,
-                        latitude: nearestOfficer.latitude,
-                        longitude: nearestOfficer.longitude,
                         icon: Icons.person,
                         color: AppTheme.accentOrange,
-                        onCall: () => _makePhoneCall(nearestOfficer!.phone),
                         isChichewa: isChichewa,
                       ),
 
                     // Contact Extension Officer via Message
-                    if (nearestOfficer != null) ...[
-                      const SizedBox(height: 12),
-                      _buildMessageActionButton(
-                        label: isChichewa
-                            ? 'Lowa Fono la Afesa Officer'
-                            : 'Contact Extension Officer',
-                        icon: Icons.message,
-                        color: AppTheme.accentOrange,
-                        onTap: () => _contactExtensionOfficer(
-                          context,
-                          nearestOfficer,
-                          isChichewa,
-                        ),
+                    const SizedBox(height: 12),
+                    _buildMessageActionButton(
+                      label: isChichewa
+                          ? 'Lowa Fono la Afesa Officer'
+                          : 'Contact Extension Officer',
+                      icon: Icons.message,
+                      color: AppTheme.accentOrange,
+                      onTap: () => _contactExtensionOfficer(
+                        context,
+                        nearestOfficer,
+                        isChichewa,
                       ),
-                    ],
+                    ),
 
                     const SizedBox(height: 20),
 
@@ -650,6 +680,9 @@ class _ScanPageState extends State<ScanPage> {
                             diagnosis: result,
                             isChichewa: isChichewa,
                           ),
+                          nearestOfficer: nearestOfficer,
+                          nearestDealer: nearestDealer,
+                          locationName: locationText,
                         );
                       },
                       icon: const Icon(Icons.smart_toy),
@@ -672,7 +705,7 @@ class _ScanPageState extends State<ScanPage> {
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () {
-                            Navigator.pop(context);
+                            Navigator.pop(dialogContext);
                             context.read<DiagnosisBloc>().add(DiagnosisReset());
                           },
                           child: Text(isChichewa ? 'Bwererani' : 'Try Again'),
@@ -682,7 +715,7 @@ class _ScanPageState extends State<ScanPage> {
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () {
-                            Navigator.pop(context);
+                            Navigator.pop(dialogContext);
                             Navigator.of(this.context).push(
                               MaterialPageRoute(
                                 builder: (_) =>
@@ -697,8 +730,8 @@ class _ScanPageState extends State<ScanPage> {
                   ),
                 ],
               ),
-            );
-          },
+            ),
+          ),
         );
       },
     );
@@ -878,6 +911,36 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
+  Widget _buildMissingContactCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required bool isChichewa,
+  }) {
+    final message = isChichewa ? 'Palibe $title wapezeka' : 'No $title found';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.bodyMedium.copyWith(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInfoChip(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -895,6 +958,14 @@ class _ScanPageState extends State<ScanPage> {
         ),
       ),
     );
+  }
+
+  String _resolveDetailText(String? value, bool isChichewa) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return isChichewa ? 'Palibe' : 'Not available';
+    }
+    return text;
   }
 
   Widget _buildDetailSection(
@@ -962,7 +1033,16 @@ class _ScanPageState extends State<ScanPage> {
     required DiagnosisResult diagnosis,
     required bool isChichewa,
     String? initialPrompt,
+    ExtensionOfficer? nearestOfficer,
+    AgroDealer? nearestDealer,
+    String? locationName,
   }) {
+    // Ensure the app requests a fresh location before opening assistant.
+    final locationBloc = context.read<LocationBloc>();
+    if (locationBloc.state is! LocationLoaded) {
+      locationBloc.add(LocationGetCurrent());
+    }
+
     Navigator.pop(hostContext);
     showModalBottomSheet(
       context: context,
@@ -988,6 +1068,9 @@ class _ScanPageState extends State<ScanPage> {
                 floatingMode: true,
                 pageContext: isChichewa ? 'Zotsatira za scan' : 'Scan result',
                 onClose: () => Navigator.of(sheetContext).pop(),
+                initialNearestOfficer: nearestOfficer,
+                initialNearestDealer: nearestDealer,
+                initialLocationName: locationName,
               ),
             );
           },
@@ -1076,6 +1159,19 @@ class _ScanPageState extends State<ScanPage> {
 
     context.read<AlertsBloc>().add(AlertSent(alert));
 
+    // Also create a report and notify the nearest extension officer and manager
+    // if location information is available (fire-and-forget).
+    final locationState = context.read<LocationBloc>().state;
+    final ExtensionOfficer? notifyOfficer = locationState is LocationLoaded
+        ? locationState.nearestOfficer
+        : null;
+    // fire-and-forget report creation/notification
+    _createReportAndNotify(
+      result: result,
+      isChichewa: isChichewa,
+      nearestOfficer: notifyOfficer,
+    );
+
     // Show confirmation dialog
     showDialog(
       context: context,
@@ -1125,11 +1221,83 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
+  Future<void> _createReportAndNotify({
+    required DiagnosisResult result,
+    required bool isChichewa,
+    ExtensionOfficer? nearestOfficer,
+  }) async {
+    final authState = context.read<AuthBloc>().state;
+    if (authState.status != AuthStatus.authenticated ||
+        authState.user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isChichewa
+                ? 'Lowani kaye kuti muthe kutumiza report.'
+                : 'Please log in to send a report.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final locationState = context.read<LocationBloc>().state;
+    final location = locationState is LocationLoaded
+        ? locationState.location
+        : null;
+
+    try {
+      await _reportService.createReport(
+        diagnosis: result,
+        farmer: authState.user!,
+        location: location,
+        nearestOfficer: nearestOfficer,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isChichewa
+                  ? 'Report yatumizidwa kwa Manager ndi Afesa Officer.'
+                  : 'Report sent to the Manager and Extension Officer.',
+            ),
+            backgroundColor: AppTheme.healthyGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isChichewa
+                  ? 'Report sinatumizidwe. Yesaninso.'
+                  : 'Report failed to send. Please try again.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   void _contactExtensionOfficer(
     BuildContext context,
     ExtensionOfficer? officer,
     bool isChichewa,
   ) {
+    final diagnosisState = context.read<DiagnosisBloc>().state;
+    final diagnosis = diagnosisState is DiagnosisSuccess
+        ? diagnosisState.result
+        : null;
+    if (diagnosis != null) {
+      _createReportAndNotify(
+        result: diagnosis,
+        isChichewa: isChichewa,
+        nearestOfficer: officer,
+      );
+    }
+
     if (officer == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1369,21 +1537,22 @@ class _ScanPageState extends State<ScanPage> {
               child: Text(isChichewa ? 'Ayi' : 'Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(dialogContext);
+                await _createReportAndNotify(
+                  result: result,
+                  isChichewa: isChichewa,
+                  nearestOfficer:
+                      (context.read<LocationBloc>().state is LocationLoaded)
+                      ? (context.read<LocationBloc>().state as LocationLoaded)
+                            .nearestOfficer
+                      : null,
+                );
                 _startMessageConversation(
                   context,
                   result,
                   'agricultureManager',
                   isChichewa,
-                );
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      isChichewa ? 'Report yatumizidwa!' : 'Report sent!',
-                    ),
-                    backgroundColor: AppTheme.healthyGreen,
-                  ),
                 );
               },
               style: ElevatedButton.styleFrom(
@@ -1429,6 +1598,19 @@ class _ScanPageState extends State<ScanPage> {
       return;
     }
 
+    final locationState = context.read<LocationBloc>().state;
+    String locationText = '';
+    String? district;
+    if (locationState is LocationLoaded) {
+      locationText = locationState.location.placeName ?? '';
+      district = locationState.location.district;
+      if (locationText.isNotEmpty && district != null) {
+        locationText += ', $district';
+      } else if (district != null && locationText.isEmpty) {
+        locationText = district;
+      }
+    }
+
     _openAssistantForDiagnosis(
       hostContext: context,
       diagnosis: diagnosis,
@@ -1438,6 +1620,13 @@ class _ScanPageState extends State<ScanPage> {
         isChichewa: isChichewa,
         contactName: contactName,
       ),
+      nearestOfficer: locationState is LocationLoaded
+          ? locationState.nearestOfficer
+          : null,
+      nearestDealer: locationState is LocationLoaded
+          ? locationState.nearestDealer
+          : null,
+      locationName: locationText.isNotEmpty ? locationText : null,
     );
   }
 

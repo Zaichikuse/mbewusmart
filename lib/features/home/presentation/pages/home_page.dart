@@ -7,7 +7,10 @@ import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
+import '../../../diagnosis/domain/entities/crop_type.dart';
+import '../../../diagnosis/domain/entities/diagnosis_result.dart';
 import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
+import '../../../location/presentation/bloc/location_bloc.dart';
 import '../../../scan/presentation/pages/scan_page.dart';
 import '../../../history/presentation/pages/history_page.dart';
 import '../../../location/presentation/pages/nearby_help_page.dart';
@@ -23,12 +26,18 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // Load diagnosis history
-    try {
-      context.read<DiagnosisBloc>().add(DiagnosisHistoryRequested());
-    } catch (e) {
-      // Ignore if bloc is not available
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        context.read<LocationBloc>().add(LocationGetCurrent());
+        final userId = context.read<AuthBloc>().state.user?.id;
+        context.read<DiagnosisBloc>().add(
+          DiagnosisHistoryRequested(userId: userId),
+        );
+      } catch (e) {
+        // Ignore if bloc is not available
+      }
+    });
   }
 
   String _getLanguageCode() {
@@ -57,18 +66,29 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildGreetingCard(context, isChichewa),
-              const SizedBox(height: 24),
-              _buildQuickActions(context, isChichewa),
-              const SizedBox(height: 24),
-              _buildRecentDiagnoses(context, isChichewa),
-            ],
+      body: BlocListener<DiagnosisBloc, DiagnosisState>(
+        listenWhen: (previous, current) => current is DiagnosisSuccess,
+        listener: (context, state) {
+          if (state is DiagnosisSuccess) {
+            final userId = context.read<AuthBloc>().state.user?.id;
+            context.read<DiagnosisBloc>().add(
+                  DiagnosisHistoryRequested(userId: userId),
+                );
+          }
+        },
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildGreetingCard(context, isChichewa),
+                const SizedBox(height: 24),
+                _buildQuickActions(context, isChichewa),
+                const SizedBox(height: 24),
+                _buildRecentDiagnoses(context, isChichewa),
+              ],
+            ),
           ),
         ),
       ),
@@ -271,9 +291,9 @@ class _HomePageState extends State<HomePage> {
             return ListView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: state.history.take(3).length,
+              itemCount: state.history.take(5).length,
               itemBuilder: (context, index) {
-                final result = state.history[index];
+                final result = state.history.take(5).toList()[index];
                 return _buildHistoryCard(result, isChichewa);
               },
             );
@@ -301,8 +321,8 @@ class _HomePageState extends State<HomePage> {
       child: EmptyState(
         title: isChichewa ? 'Palibe zopima mpaka pano' : 'No diagnoses yet',
         message: isChichewa
-            ? 'Zopima zanu zidzasungidwa apa'
-            : 'Your diagnoses will appear here',
+            ? 'Pima mbewu yanu yoyamba!'
+            : 'Scan your first crop!',
         icon: Icons.eco_outlined,
       ),
     );
@@ -329,78 +349,122 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildHistoryCard(dynamic result, bool isChichewa) {
-    final typeName = _safeEnumName(result.type);
-    final severityName = _safeEnumName(result.severity);
+  Widget _buildHistoryCard(DiagnosisResult result, bool isChichewa) {
+    final severityColor = _getSeverityColor(result.severity);
+    final confidencePercent = (result.confidence * 100).round();
+    final confidenceLabel = isChichewa
+        ? '$confidencePercent% chikumbutso'
+        : '$confidencePercent% confidence';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: _getSeverityColor(result.severity).withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(
-            _getDiagnosisIcon(typeName),
-            color: _getSeverityColor(result.severity),
-          ),
-        ),
-        title: Text(result.diagnosisName ?? 'Unknown'),
-        subtitle: Text(
-          '${typeName.isEmpty ? 'Unknown' : typeName} - ${severityName.isEmpty ? 'Unknown' : severityName}',
-          style: TextStyle(color: _getSeverityColor(result.severity)),
-        ),
-        trailing: Text(
-          _formatDate(result.timestamp),
-          style: AppTextStyles.caption,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              result.cropType.icon,
+              style: const TextStyle(fontSize: 36),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    result.diagnosisName,
+                    style: AppTextStyles.bodyLarge.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    confidenceLabel,
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppTheme.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _buildSeverityBadge(
+                      result.severity,
+                      severityColor,
+                      isChichewa,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _formatDateDdMmYyyy(result.timestamp),
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppTheme.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  String _safeEnumName(dynamic value) {
-    if (value == null) return '';
-    final text = value.toString();
-    final separator = text.lastIndexOf('.');
-    if (separator == -1 || separator == text.length - 1) {
-      return text;
-    }
-    return text.substring(separator + 1);
+  Widget _buildSeverityBadge(
+    Severity severity,
+    Color color,
+    bool isChichewa,
+  ) {
+    final label = _severityLabel(severity, isChichewa);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+      ),
+    );
   }
 
-  Color _getSeverityColor(dynamic severity) {
-    if (severity == null) return AppTheme.textMuted;
-    switch (severity.toString()) {
-      case 'Severity.low':
+  String _severityLabel(Severity severity, bool isChichewa) {
+    switch (severity) {
+      case Severity.low:
+        return isChichewa ? 'Wotsika' : 'Low';
+      case Severity.medium:
+        return isChichewa ? 'Pakati' : 'Medium';
+      case Severity.high:
+        return isChichewa ? 'Wakwera' : 'High';
+    }
+  }
+
+  Color _getSeverityColor(Severity severity) {
+    switch (severity) {
+      case Severity.low:
         return AppTheme.healthyGreen;
-      case 'Severity.medium':
+      case Severity.medium:
         return AppTheme.warningAmber;
-      case 'Severity.high':
+      case Severity.high:
         return AppTheme.diseaseRed;
-      default:
-        return AppTheme.textLight;
     }
   }
 
-  IconData _getDiagnosisIcon(String type) {
-    switch (type.toLowerCase()) {
-      case 'disease':
-        return Icons.coronavirus;
-      case 'pest':
-        return Icons.bug_report;
-      case 'deficiency':
-        return Icons.science;
-      case 'healthy':
-        return Icons.check_circle;
-      default:
-        return Icons.eco;
-    }
-  }
-
-  String _formatDate(DateTime? date) {
-    if (date == null) return '';
-    return '${date.day}/${date.month}/${date.year}';
+  String _formatDateDdMmYyyy(DateTime date) {
+    final d = date.day.toString().padLeft(2, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final y = date.year.toString();
+    return '$d/$m/$y';
   }
 }

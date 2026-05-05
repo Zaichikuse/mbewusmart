@@ -1,325 +1,367 @@
-import 'dart:math';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:dartz/dartz.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
+
 import '../../../../core/error/failures.dart';
 import '../../domain/entities/diagnosis_result.dart';
 import '../../domain/entities/crop_type.dart';
 
 class AnalyzeImageUseCase {
-  final Random _random = Random();
+  String get _geminiApiKey {
+    final keyCandidates = [
+      dotenv.env['GEMINI_API_KEY'],
+      dotenv.env['GOOGLE_API_KEY'],
+      const String.fromEnvironment('GEMINI_API_KEY'),
+    ];
+    for (final candidate in keyCandidates) {
+      var v = (candidate ?? '').trim();
+      if ((v.startsWith('"') && v.endsWith('"')) ||
+          (v.startsWith("'") && v.endsWith("'"))) {
+        v = v.substring(1, v.length - 1).trim();
+      }
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  List<String> get _modelCandidates => [
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-2.5-flash',
+  ];
 
   Future<Either<Failure, DiagnosisResult>> call(
     String imagePath,
-    CropType cropType,
-  ) async {
+    CropType cropType, {
+    Uint8List? imageBytes, // ← Accept bytes directly from image picker
+  }) async {
     try {
-      await Future.delayed(const Duration(seconds: 2));
+      // ── 1. Validate API key ────────────────────────────────────────
+      final apiKey = _geminiApiKey;
+      print('[Gemini] API key present: ${apiKey.isNotEmpty}');
+      if (apiKey.isEmpty) {
+        return Left(ServerFailure('API key missing. Check your .env file.'));
+      }
 
-      return Right(_getCropSpecificResult(imagePath, cropType));
+      // ── 2. Get image bytes ─────────────────────────────────────────
+      // Use passed bytes first (most reliable on Android)
+      // Fall back to reading from file path
+      Uint8List finalBytes;
+      if (imageBytes != null && imageBytes.isNotEmpty) {
+        print('[Gemini] Using provided image bytes: ${imageBytes.length}');
+        finalBytes = imageBytes;
+      } else {
+        final imageFile = File(imagePath);
+        print('[Gemini] Reading image bytes from path: $imagePath');
+        if (!await imageFile.exists()) {
+          return Left(ServerFailure('Image file not found. Please try again.'));
+        }
+        finalBytes = await imageFile.readAsBytes();
+        print('[Gemini] Read image bytes from file: ${finalBytes.length}');
+      }
+
+      if (finalBytes.isEmpty) {
+        return Left(ServerFailure('Image is empty. Please try again.'));
+      }
+
+      final base64Image = base64Encode(finalBytes);
+
+      // Always use jpeg for Gemini — most reliable format
+      const mimeType = 'image/jpeg';
+      final cropName = cropType.displayName;
+      print('[Gemini] Crop type: $cropName');
+
+      // ── 3. Build prompt ────────────────────────────────────────────
+      final prompt =
+          '''
+You are CropDoc, an expert agricultural diagnostic AI for smallholder farmers in Malawi, Africa.
+
+Your task: Carefully analyze this $cropName crop image and provide an accurate diagnosis.
+
+IMPORTANT RULES:
+- Look very carefully at the leaves, stems, color, spots, patterns in the image
+- Give a REAL diagnosis based on what you actually see
+- If the plant looks healthy with no visible problems, say "healthy"
+- Only say "unclear" if the image is completely black, completely blurred, or has no visible plant
+- Be confident — farmers need real answers, not vague responses
+- confidence must be an honest integer 60-99 for clear images
+- Return ONLY the JSON below with no other text, no markdown, no backticks
+
+{
+  "diagnosis_type": "healthy",
+  "name": "Healthy Maize Crop",
+  "name_chichewa": "Chimanga Cha Bwino",
+  "scientific_name": null,
+  "confidence": 85,
+  "severity": "low",
+  "symptoms_observed": ["describe what you actually see in the image"],
+  "causing_factors": "explain the cause or null if healthy",
+  "recommendation": "what the farmer should do right now",
+  "treatment": "specific treatment steps or null if healthy",
+  "prevention": "how to prevent this in future",
+  "pesticide_remedy": "specific pesticide name and dosage or null",
+  "consult_expert": false
+}
+
+Replace ALL values above with your REAL diagnosis of this $cropName image.
+diagnosis_type must be one of: disease, pest, nutritional_deficiency, healthy, unclear
+severity must be one of: low, medium, high
+''';
+
+      // ── 4. Call Gemini ─────────────────────────────────────────────
+      for (final model in _modelCandidates) {
+        print('[Gemini] Using model: $model');
+        final uri = Uri.https(
+          'generativelanguage.googleapis.com',
+          '/v1beta/models/$model:generateContent',
+        );
+        print('[Gemini] Request URL: $uri');
+
+        http.Response response;
+        try {
+          response = await http
+              .post(
+                uri,
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-goog-api-key': apiKey,
+                },
+                body: jsonEncode({
+                  'contents': [
+                    {
+                      'parts': [
+                        {
+                          'inline_data': {
+                            'mime_type': mimeType,
+                            'data': base64Image,
+                          },
+                        },
+                        {'text': prompt},
+                      ],
+                    },
+                  ],
+                  'generationConfig': {
+                    'temperature': 0.1,
+                    'topP': 0.8,
+                    'maxOutputTokens': 1000,
+                  },
+                }),
+              )
+              .timeout(const Duration(seconds: 40));
+        } on TimeoutException {
+          print('[Gemini] Timeout after 40s');
+          return Left(
+            ServerFailure(
+              'Request timed out. Check your internet and try again.',
+            ),
+          );
+        } on SocketException {
+          print('[Gemini] No internet connection');
+          return Left(
+            ServerFailure(
+              'No internet connection. Please connect and try again.',
+            ),
+          );
+        }
+
+        print('[Gemini] Status code: ${response.statusCode}');
+        print('[Gemini] Raw response (before parsing): ${response.body}');
+
+        if (response.statusCode == 404) continue;
+
+        if (response.statusCode == 401 || response.statusCode == 403) {
+          return Left(
+            ServerFailure(
+              'API key invalid. Please regenerate your Gemini API key.',
+            ),
+          );
+        }
+
+        if (response.statusCode == 429) {
+          return Left(
+            ServerFailure('Too many requests. Wait a moment and try again.'),
+          );
+        }
+
+        if (response.statusCode >= 400) {
+          return Left(
+            ServerFailure(
+              'AI error (${response.statusCode}). Please try again.',
+            ),
+          );
+        }
+
+        // ── 5. Parse response ──────────────────────────────────────
+        Map<String, dynamic> responseJson;
+        try {
+          responseJson = jsonDecode(response.body) as Map<String, dynamic>;
+        } catch (e) {
+          print('[Gemini] JSON parse error (top-level): $e');
+          final preview = _truncateForUi(response.body);
+          return Left(
+            ServerFailure('AI response parse error. Raw response: $preview'),
+          );
+        }
+
+        final geminiCandidates = responseJson['candidates'] as List<dynamic>?;
+
+        if (geminiCandidates == null || geminiCandidates.isEmpty) {
+          final body = response.body;
+          final preview = body.length > 300 ? body.substring(0, 300) : body;
+          return Left(ServerFailure('AI returned no result: $preview'));
+        }
+
+        final content =
+            geminiCandidates.first['content'] as Map<String, dynamic>?;
+        final parts = content?['parts'] as List<dynamic>?;
+
+        if (parts == null || parts.isEmpty) {
+          return Left(
+            ServerFailure('AI returned empty result. Please try again.'),
+          );
+        }
+
+        final rawText = (parts.first['text'] as String? ?? '').trim();
+
+        if (rawText.isEmpty) {
+          return Left(
+            ServerFailure('AI returned empty text. Please try again.'),
+          );
+        }
+
+        // ── 6. Extract JSON ────────────────────────────────────────
+        var cleaned = rawText
+            .replaceAll('```json', '')
+            .replaceAll('```', '')
+            .replaceAll('`', '')
+            .trim();
+
+        final jsonStart = cleaned.indexOf('{');
+        final jsonEnd = cleaned.lastIndexOf('}');
+        if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
+          cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+        }
+
+        Map<String, dynamic> diagnosisJson;
+        try {
+          diagnosisJson = jsonDecode(cleaned) as Map<String, dynamic>;
+        } catch (e) {
+          print('[Gemini] JSON parse error (diagnosis body): $e');
+          print('[Gemini] Cleaned response text: $cleaned');
+          final preview = _truncateForUi(rawText);
+          return Left(
+            ServerFailure('AI response parse error. Raw response: $preview'),
+          );
+        }
+
+        return Right(_buildResultFromJson(diagnosisJson, imagePath, cropType));
+      }
+
+      return Left(
+        ServerFailure(
+          'Could not connect to AI. Check your internet and try again.',
+        ),
+      );
     } catch (e) {
-      return Left(ServerFailure(e.toString()));
+      return Left(ServerFailure('Unexpected error: ${e.toString()}'));
     }
   }
 
-  DiagnosisResult _getCropSpecificResult(String imagePath, CropType cropType) {
-    final diagnosisData = _getDiagnosisForCrop(cropType);
+  String _truncateForUi(String text, {int maxChars = 1000}) {
+    if (text.length <= maxChars) return text;
+    return '${text.substring(0, maxChars)}...';
+  }
+
+  DiagnosisResult _buildResultFromJson(
+    Map<String, dynamic> json,
+    String imagePath,
+    CropType cropType,
+  ) {
+    // Parse confidence
+    final confidenceRaw = json['confidence'];
+    double confidence = 0.70;
+    if (confidenceRaw is int) {
+      confidence = confidenceRaw / 100.0;
+    } else if (confidenceRaw is double) {
+      confidence = confidenceRaw > 1.0 ? confidenceRaw / 100.0 : confidenceRaw;
+    } else if (confidenceRaw is String) {
+      confidence = (double.tryParse(confidenceRaw) ?? 70.0) / 100.0;
+    }
+    confidence = confidence.clamp(0.0, 1.0);
+
+    // Parse diagnosis type
+    final typeStr = (json['diagnosis_type'] as String? ?? 'healthy')
+        .toLowerCase()
+        .trim();
+    DiagnosisType type;
+    switch (typeStr) {
+      case 'disease':
+        type = DiagnosisType.disease;
+        break;
+      case 'pest':
+        type = DiagnosisType.pest;
+        break;
+      case 'nutritional_deficiency':
+        type = DiagnosisType.deficiency;
+        break;
+      case 'healthy':
+        type = DiagnosisType.healthy;
+        break;
+      default:
+        type = DiagnosisType.healthy;
+    }
+
+    // Parse severity
+    final severityStr = (json['severity'] as String? ?? 'low')
+        .toLowerCase()
+        .trim();
+    Severity severity;
+    switch (severityStr) {
+      case 'high':
+        severity = Severity.high;
+        break;
+      case 'medium':
+        severity = Severity.medium;
+        break;
+      default:
+        severity = Severity.low;
+    }
+
+    final bool consultExpert =
+        confidence < 0.60 || (json['consult_expert'] as bool? ?? false);
+
+    var recommendation =
+        json['recommendation'] as String? ??
+        'Please consult your extension officer.';
+
+    if (consultExpert && confidence < 0.60) {
+      recommendation = '$recommendation Please consult your extension officer.';
+    }
 
     return DiagnosisResult(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       imagePath: imagePath,
-      type: diagnosisData.type,
-      diagnosisName: diagnosisData.name,
-      diagnosisNameChichewa: diagnosisData.nameChichewa,
-      confidence: diagnosisData.confidence,
-      severity: diagnosisData.severity,
-      recommendation: diagnosisData.recommendation,
-      treatment: diagnosisData.treatment,
-      prevention: diagnosisData.prevention,
+      type: type,
+      diagnosisName: json['name'] as String? ?? 'Unknown Condition',
+      diagnosisNameChichewa:
+          json['name_chichewa'] as String? ??
+          json['name'] as String? ??
+          'Sidziwika',
+      confidence: confidence,
+      severity: severity,
+      recommendation: recommendation,
+      treatment: json['treatment'] as String?,
+      prevention: json['prevention'] as String?,
       timestamp: DateTime.now(),
       cropType: cropType,
-      scientificName: diagnosisData.scientificName,
-      causingFactors: diagnosisData.causingFactors,
-      pesticideRemedy: diagnosisData.pesticideRemedy,
+      scientificName: json['scientific_name'] as String?,
+      causingFactors: json['causing_factors'] as String?,
+      pesticideRemedy: json['pesticide_remedy'] as String?,
     );
   }
-
-  _DiagnosisData _getDiagnosisForCrop(CropType cropType) {
-    switch (cropType) {
-      case CropType.maize:
-        return _getMaizeDiagnosis();
-      case CropType.cassava:
-        return _getCassavaDiagnosis();
-      case CropType.tomato:
-        return _getTomatoDiagnosis();
-    }
-  }
-
-  _DiagnosisData _getMaizeDiagnosis() {
-    final diagnoses = [
-      _DiagnosisData(
-        type: DiagnosisType.healthy,
-        name: 'Healthy Maize',
-        nameChichewa: 'Mgamula Yauchipuka',
-        confidence: 0.85,
-        severity: Severity.low,
-        recommendation:
-            'Your maize crop is healthy! Continue with regular watering and monitoring.',
-        treatment: null,
-        prevention: 'Continue with good agricultural practices.',
-        scientificName: null,
-        causingFactors: null,
-        pesticideRemedy: null,
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.disease,
-        name: 'Northern Leaf Blight',
-        nameChichewa: 'Matenda a Mphepete',
-        confidence: 0.78,
-        severity: Severity.medium,
-        recommendation: 'Consider applying fungicide to prevent spread.',
-        treatment: 'Apply Mancozeb or Chlorothalonil fungicide.',
-        prevention: 'Use resistant varieties and crop rotation.',
-        scientificName: 'Exserohilum turcicum',
-        causingFactors:
-            'High humidity, warm temperatures, continuous maize cropping.',
-        pesticideRemedy: 'Mancozeb 80% WP - 2.5kg/ha',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.disease,
-        name: 'Maize Streak Virus',
-        nameChichewa: 'Matenda ya Mphepete',
-        confidence: 0.72,
-        severity: Severity.high,
-        recommendation: 'Remove infected plants to prevent spread.',
-        treatment: 'No direct treatment. Remove and destroy infected plants.',
-        prevention: 'Use certified virus-free seeds, control leafhoppers.',
-        scientificName: 'Maize Streak Virus (MSV)',
-        causingFactors: 'Transmitted by leafhoppers, warm dry conditions.',
-        pesticideRemedy: 'Imidacloprid for leafhopper control',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.pest,
-        name: 'Fall Armyworm',
-        nameChichewa: 'Khumani Wabwino',
-        confidence: 0.82,
-        severity: Severity.high,
-        recommendation: 'Act immediately to prevent crop loss.',
-        treatment: 'Apply Spinosad or Flubendiamide.',
-        prevention: 'Early planting, crop rotation, intercropping.',
-        scientificName: 'Spodoptera frugiperda',
-        causingFactors: 'Dry conditions, late planting, monocropping.',
-        pesticideRemedy:
-            'Spinosad 48% SC - 150ml/ha or Flubendiamide 480 SC - 50ml/ha',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.deficiency,
-        name: 'Nitrogen Deficiency',
-        nameChichewa: 'Vuto LA Azoti',
-        confidence: 0.75,
-        severity: Severity.medium,
-        recommendation: 'Apply nitrogen fertilizer to correct deficiency.',
-        treatment: 'Apply Urea or CAN fertilizer.',
-        prevention:
-            'Soil testing, balanced fertilization, crop rotation with legumes.',
-        scientificName: null,
-        causingFactors: 'Leaching, heavy rainfall, poor soil fertility.',
-        pesticideRemedy:
-            'Urea (46% N) - 100-150 kg/ha or CAN (26% N) - 200 kg/ha',
-      ),
-    ];
-
-    return diagnoses[_random.nextInt(diagnoses.length)];
-  }
-
-  _DiagnosisData _getCassavaDiagnosis() {
-    final diagnoses = [
-      _DiagnosisData(
-        type: DiagnosisType.healthy,
-        name: 'Healthy Cassava',
-        nameChichewa: 'Chikanda Chauchipuka',
-        confidence: 0.88,
-        severity: Severity.low,
-        recommendation:
-            'Your cassava crop is healthy! Continue with regular monitoring.',
-        treatment: null,
-        prevention: 'Continue with good agricultural practices.',
-        scientificName: null,
-        causingFactors: null,
-        pesticideRemedy: null,
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.disease,
-        name: 'Cassava Mosaic Disease',
-        nameChichewa: 'Matenda ya Chikanda',
-        confidence: 0.80,
-        severity: Severity.high,
-        recommendation: 'Remove infected plants immediately.',
-        treatment: 'No cure. Remove and destroy infected plants.',
-        prevention: 'Use resistant varieties, plant disease-free cuttings.',
-        scientificName: 'Cassava Mosaic Virus (CMV)',
-        causingFactors:
-            'Whitefly transmission, using infected planting material.',
-        pesticideRemedy: 'No pesticide. Use resistant variety TME 14 or 419.',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.disease,
-        name: 'Cassava Brown Streak Disease',
-        nameChichewa: 'Matenda a Mtsinje wa Chikanda',
-        confidence: 0.74,
-        severity: Severity.high,
-        recommendation: 'Remove infected plants to prevent spread.',
-        treatment: 'No cure. Remove and destroy infected plants.',
-        prevention: 'Use clean planting material from certified sources.',
-        scientificName: 'Cassava Brown Streak Virus (CBSV)',
-        causingFactors:
-            'Whitefly transmission, poor quality planting material.',
-        pesticideRemedy: 'Control whitefly with imidacloprid.',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.pest,
-        name: 'Cassava Green Mite',
-        nameChichewa: 'Khumani wa Chikanda',
-        confidence: 0.71,
-        severity: Severity.medium,
-        recommendation: 'Monitor and apply miticide if severe.',
-        treatment: 'Apply sulfur-based miticides.',
-        prevention: 'Use resistant varieties, early planting.',
-        scientificName: 'Mononychellus tanajoa',
-        causingFactors: 'Dry conditions, late planting.',
-        pesticideRemedy: 'Sulfur 80% WDG - 2-3 kg/ha',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.deficiency,
-        name: 'Potassium Deficiency',
-        nameChichewa: 'Vuto LA Potassium',
-        confidence: 0.68,
-        severity: Severity.medium,
-        recommendation: 'Apply potassium fertilizer.',
-        treatment: 'Apply Muriate of Potash or sulfate of potash.',
-        prevention: 'Balanced fertilization, use of compost.',
-        scientificName: null,
-        causingFactors: 'Leaching, sandy soils, heavy rainfall.',
-        pesticideRemedy: 'MOP (60% K2O) - 100-150 kg/ha',
-      ),
-    ];
-
-    return diagnoses[_random.nextInt(diagnoses.length)];
-  }
-
-  _DiagnosisData _getTomatoDiagnosis() {
-    final diagnoses = [
-      _DiagnosisData(
-        type: DiagnosisType.healthy,
-        name: 'Healthy Tomato',
-        nameChichewa: 'Tomato Yauchipuka',
-        confidence: 0.90,
-        severity: Severity.low,
-        recommendation: 'Your tomato crop is healthy! Keep up the good work.',
-        treatment: null,
-        prevention: 'Continue regular watering and monitor for pests.',
-        scientificName: null,
-        causingFactors: null,
-        pesticideRemedy: null,
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.disease,
-        name: 'Bacterial Wilt',
-        nameChichewa: 'Matenda ya Bacterial',
-        confidence: 0.76,
-        severity: Severity.high,
-        recommendation: 'Remove infected plants immediately.',
-        treatment:
-            'No effective treatment. Remove and destroy infected plants.',
-        prevention:
-            'Crop rotation, use resistant varieties, avoid overwatering.',
-        scientificName: 'Ralstonia solanacearum',
-        causingFactors: 'Warm temperatures, high soil moisture, poor drainage.',
-        pesticideRemedy: 'No effective pesticide. Use resistant varieties.',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.disease,
-        name: 'Tomato Blight',
-        nameChichewa: 'Matenda ya Tomato',
-        confidence: 0.82,
-        severity: Severity.high,
-        recommendation: 'Apply fungicide immediately.',
-        treatment: 'Apply Mancozeb or Copper-based fungicide.',
-        prevention:
-            'Good spacing, avoid overhead irrigation, remove infected leaves.',
-        scientificName: 'Phytophthora infestans',
-        causingFactors: 'Cool wet conditions, high humidity.',
-        pesticideRemedy:
-            'Mancozeb 80% WP - 2.5 kg/ha or Copper Oxychloride 50% WP - 3 kg/ha',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.disease,
-        name: 'Tomato Yellow Leaf Curl Virus',
-        nameChichewa: 'Matenda ya Mitu Yatsala',
-        confidence: 0.73,
-        severity: Severity.high,
-        recommendation: 'Control whitefly to prevent spread.',
-        treatment: 'No cure. Remove infected plants.',
-        prevention: 'Use yellow sticky traps, control whitefly.',
-        scientificName: 'Tomato Yellow Leaf Curl Virus (TYLCV)',
-        causingFactors: 'Whitefly transmission, late planting.',
-        pesticideRemedy: 'Imidacloprid 70% WG - 70g/ha for whitefly control',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.pest,
-        name: 'Tomato Fruitworm',
-        nameChichewa: 'Khumani wa Tomato',
-        confidence: 0.79,
-        severity: Severity.medium,
-        recommendation: 'Apply insecticide to control larvae.',
-        treatment: 'Apply Lambda-cyhalothrin or Spinosad.',
-        prevention: 'Crop rotation, hand-pick larvae, use traps.',
-        scientificName: 'Helicoverpa armigera',
-        causingFactors: 'Warm weather, presence of flowers and fruits.',
-        pesticideRemedy:
-            'Lambda-cyhalothrin 5% EC - 300 ml/ha or Spinosad 48% SC - 150 ml/ha',
-      ),
-      _DiagnosisData(
-        type: DiagnosisType.deficiency,
-        name: 'Calcium Deficiency (Blossom End Rot)',
-        nameChichewa: 'Vuto LA Calcium',
-        confidence: 0.81,
-        severity: Severity.medium,
-        recommendation: 'Apply calcium fertilizer and adjust watering.',
-        treatment: 'Foliar spray with calcium nitrate.',
-        prevention: 'Consistent watering, add lime to soil.',
-        scientificName: null,
-        causingFactors: 'Irregular watering, calcium deficiency in soil.',
-        pesticideRemedy: 'Calcium nitrate foliar spray - 2%',
-      ),
-    ];
-
-    return diagnoses[_random.nextInt(diagnoses.length)];
-  }
-}
-
-class _DiagnosisData {
-  final DiagnosisType type;
-  final String name;
-  final String nameChichewa;
-  final double confidence;
-  final Severity severity;
-  final String? recommendation;
-  final String? treatment;
-  final String? prevention;
-  final String? scientificName;
-  final String? causingFactors;
-  final String? pesticideRemedy;
-
-  _DiagnosisData({
-    required this.type,
-    required this.name,
-    required this.nameChichewa,
-    required this.confidence,
-    required this.severity,
-    this.recommendation,
-    this.treatment,
-    this.prevention,
-    this.scientificName,
-    this.causingFactors,
-    this.pesticideRemedy,
-  });
 }

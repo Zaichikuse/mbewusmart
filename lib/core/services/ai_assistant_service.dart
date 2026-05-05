@@ -87,21 +87,11 @@ class AiAssistantService {
     return '';
   }
 
-  List<String> get _geminiModelCandidates {
-    final configuredModel = _sanitizeApiKey(dotenv.env['GEMINI_MODEL']);
-    final models = <String>[
-      if (configuredModel.isNotEmpty) configuredModel,
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
-      'gemini-2.0-flash-lite',
-    ];
-
-    return models
-        .map((m) => m.replaceFirst('models/', '').trim())
-        .where((m) => m.isNotEmpty)
-        .toSet()
-        .toList();
-  }
+  List<String> get _geminiModelCandidates => [
+        'gemini-2.0-flash',
+        'gemini-2.0-flash-lite',
+        'gemini-2.5-flash',
+      ];
 
   String _historyKeyForLanguage(String languageCode, {String? userId}) {
     final scopedUserId = (userId == null || userId.trim().isEmpty)
@@ -197,52 +187,6 @@ class AiAssistantService {
         ? ''
         : ' Your latest diagnosis is $latestDiagnosisName.';
     return 'Hello $safeName. I am your farming AI assistant. I remember $previousMessages earlier messages.$diagnosisLine';
-  }
-
-  bool _isAutomationRequest(String prompt) {
-    final p = prompt.toLowerCase();
-    const patterns = [
-      'nearby',
-      'near me',
-      'nearest',
-      'closest',
-      'close by',
-      'local help',
-      'nearby help',
-      'near help',
-      'closest help',
-      'support near',
-      'agro dealer',
-      'agro-dealer',
-      'agro dealers',
-      'agro-dealers',
-      'agrodealers',
-      'agrodealer',
-      'dealer near',
-      'nearby dealer',
-      'nearby agrodealer',
-      'nearby agro-dealer',
-      'nearby agro dealers',
-      'nearby agro-dealers',
-      'dealer',
-      'help near me',
-      'support near me',
-      'extension officer',
-      'extension worker',
-      'locate dealer',
-      'where to buy',
-      'where can i buy',
-      'where do i buy',
-      'wogulitsa',
-      'thandizo',
-      'pafupi',
-      'afesa',
-      'agro',
-      'dealer yapafupi',
-      'thandizo lapafupi',
-    ];
-
-    return patterns.any(p.contains);
   }
 
   Future<void> saveSupportContext({
@@ -366,7 +310,7 @@ class AiAssistantService {
       );
       if (nearestDealer == null && nearestOfficer == null) {
         buffer.writeln(
-          'Ngati izi zikusonyeza zopanda zotsatira, onetsetsani kuti location permission yalolezedwa kenako yesaninso.',
+          'Tsekulani chilolezo cha GPS mu phone settings kuti app ipeze agro-dealer ndi Afesa Officer oyandikana nanu.',
         );
       }
     } else {
@@ -394,12 +338,66 @@ class AiAssistantService {
       buffer.writeln('Use these contacts to get help quickly.');
       if (nearestDealer == null && nearestOfficer == null) {
         buffer.writeln(
-          'If nothing is listed, allow location permission and retry so we can fetch nearby support.',
+          'Enable GPS location permission in your phone settings so the app can find nearby agro-dealers and extension officers.',
         );
       }
     }
 
     return buffer.toString().trim();
+  }
+
+  /// Text injected into Gemini prompts: only non-empty dealer/officer fields;
+  /// when both contacts are null, instruct farmer to enable GPS.
+  String _buildSupportContextForPrompt({
+    required bool isChichewa,
+    required String? locationName,
+    required ExtensionOfficer? nearestOfficer,
+    required AgroDealer? nearestDealer,
+  }) {
+    final dealer = nearestDealer;
+    final officer = nearestOfficer;
+
+    if (dealer == null && officer == null) {
+      return isChichewa
+          ? 'LOCATION / NEARBY SUPPORT: Palibe thandizo lapafupi lomwe lapezeka. Tsekulani chilolezo cha GPS mu phone settings (Location) kuti app ipeze agro-dealer ndi Afesa Officer oyandikana nanu, ndipo funsani kachiwiri.'
+          : 'LOCATION / NEARBY SUPPORT: No nearby contacts are loaded yet. Please enable GPS location permission in your phone settings so the app can find nearby agro-dealers and extension officers, then ask again.';
+    }
+
+    final lines = <String>[
+      'NEARBY SUPPORT FOR THIS FARMER (use these exact details when the farmer asks about nearby help, dealers, or extension officers):',
+    ];
+
+    final loc = (locationName ?? '').trim();
+    if (loc.isNotEmpty) {
+      lines.add('Location: $loc');
+    }
+
+    if (dealer != null) {
+      lines.add('Nearest Agro Dealer:');
+      final n = dealer.name.trim();
+      final p = dealer.phone.trim();
+      final d = dealer.district.trim();
+      if (n.isNotEmpty) lines.add('- Name: $n');
+      if (p.isNotEmpty) lines.add('- Phone: $p');
+      if (d.isNotEmpty) lines.add('- District: $d');
+    }
+
+    if (officer != null) {
+      lines.add('Nearest Extension Officer:');
+      final n = officer.name.trim();
+      final p = officer.phone.trim();
+      final d = officer.district.trim();
+      if (n.isNotEmpty) lines.add('- Name: $n');
+      if (p.isNotEmpty) lines.add('- Phone: $p');
+      if (d.isNotEmpty) lines.add('- District: $d');
+    }
+
+    lines.add('');
+    lines.add(
+      'When the farmer asks about nearby help, agro-dealers, extension officers, or buying inputs locally, you MUST include the exact names, phone numbers, and districts from above—never invent contacts and never give a vague reply if those lines are present.',
+    );
+
+    return lines.join('\n');
   }
 
   String _buildLocalAssistantFallback({
@@ -412,11 +410,10 @@ class AiAssistantService {
     String? reason,
   }) {
     final hasDiagnosis = diagnosis != null;
+    const offlineMessage = 'Connection failed. Check your internet.';
 
     if (isChichewa) {
-      final parts = <String>[
-        'Ndikugwiritsa ntchito offline AI helper pakadali pano.',
-      ];
+      final parts = <String>[offlineMessage];
 
       if (hasDiagnosis) {
         final d = diagnosis;
@@ -446,16 +443,14 @@ class AiAssistantService {
         );
       }
 
-      parts.add(
-        'Funso lanu: "$prompt". Ngati intaneti ikubweranso, ndingakupatseni yankho lathunthu la Gemini.',
-      );
+      parts.add('Funso lanu: "$prompt".');
       if (reason != null && reason.trim().isNotEmpty) {
         parts.add('Chifukwa: $reason.');
       }
       return parts.join(' ');
     }
 
-    final parts = <String>['I am using the offline AI helper right now.'];
+    final parts = <String>[offlineMessage];
 
     if (hasDiagnosis) {
       final d = diagnosis;
@@ -485,9 +480,7 @@ class AiAssistantService {
       );
     }
 
-    parts.add(
-      'Your question was: "$prompt". Once internet is available again, I can provide a full Gemini response.',
-    );
+    parts.add('Your question was: "$prompt".');
     if (reason != null && reason.trim().isNotEmpty) {
       parts.add('Reason: $reason.');
     }
@@ -526,15 +519,6 @@ class AiAssistantService {
     final effectiveNearestDealer =
         nearestDealer ?? _restoreDealer(cachedSupport?['nearestDealer']);
 
-    if (_isAutomationRequest(prompt)) {
-      return _buildAutomationReply(
-        isChichewa: isChichewa,
-        locationName: effectiveLocationName,
-        nearestOfficer: effectiveNearestOfficer,
-        nearestDealer: effectiveNearestDealer,
-      );
-    }
-
     if (_geminiApiKey.isEmpty) {
       return _buildLocalAssistantFallback(
         isChichewa: isChichewa,
@@ -554,53 +538,50 @@ class AiAssistantService {
     final diagnosisContext = diagnosis == null
         ? 'No diagnosis selected.'
         : '''
-Diagnosis context:
-- Crop: ${diagnosis.cropType.displayName}
-- Result: ${diagnosis.diagnosisName}
-- Confidence: ${(diagnosis.confidence * 100).toStringAsFixed(0)}%
-- Severity: ${diagnosis.severity.displayName}
-- Treatment: ${diagnosis.treatment ?? 'N/A'}
-- Prevention: ${diagnosis.prevention ?? 'N/A'}
-''';
+  Diagnosis context:
+  - Crop: ${diagnosis.cropType.displayName}
+  - Result: ${diagnosis.diagnosisName}
+  - Confidence: ${(diagnosis.confidence * 100).toStringAsFixed(0)}%
+  - Severity: ${diagnosis.severity.displayName}
+  - Treatment: ${diagnosis.treatment ?? 'N/A'}
+  - Prevention: ${diagnosis.prevention ?? 'N/A'}
+  ''';
 
-    final languageInstruction = isChichewa
-        ? 'Reply in Chichewa, simple farmer-friendly style. Keep answers practical and short.'
-        : 'Reply in English, simple farmer-friendly style. Keep answers practical and short.';
-
-    final supportContext =
-        '''
-Nearby support:
-- Location: ${effectiveLocationName ?? 'Unknown'}
-- Agro-dealer: ${effectiveNearestDealer?.name ?? 'Unknown'} (${effectiveNearestDealer?.phone ?? 'No phone'})
-- Extension officer: ${effectiveNearestOfficer?.name ?? 'Unknown'} (${effectiveNearestOfficer?.phone ?? 'No phone'})
-''';
+    final supportContext = _buildSupportContextForPrompt(
+      isChichewa: isChichewa,
+      locationName: effectiveLocationName,
+      nearestOfficer: effectiveNearestOfficer,
+      nearestDealer: effectiveNearestDealer,
+    );
 
     final uiContext = pageContext ?? _currentUiContext;
 
+    const systemPrompt =
+        'You are CropDoc, a friendly agricultural AI assistant for farmers in Malawi. You help farmers understand crop diseases and farming advice. If a diagnosis is provided below, focus your answers on that diagnosis. If no diagnosis is provided, answer general farming questions. Keep ALL answers to maximum 3 short sentences. Always respond in the same language as the farmer\'s question. Never say unclear photo - that makes no sense in a chat context. When the NEARBY SUPPORT section lists real names, phone numbers, or districts for agro-dealers or extension officers, you MUST quote those exact details in your reply if the farmer asks about nearby help, dealers, officers, or where to buy inputs—never replace them with generic placeholders or say you cannot find local contacts.';
+
     final userPrompt =
         '''
-You are an agricultural assistant for Malawi farmers.
-$languageInstruction
-Always reply in the same language as the user's latest question unless the user explicitly asks to switch language.
-If asked about nearby help or agro-dealers, use the support context provided.
-Give safe farming guidance only.
+    $systemPrompt
 
-$diagnosisContext
-$supportContext
-Current app context:
-- Screen context: $uiContext
-Conversation history:
-$historyText
+    Diagnosis context:
+    $diagnosisContext
 
-User question:
-$prompt
-''';
+    $supportContext
+
+    Current app screen: $uiContext
+
+    Conversation history:
+    $historyText
+
+    Farmer's question:
+    $prompt
+    ''';
 
     http.Response? response;
     for (final model in _geminiModelCandidates) {
       final uri = Uri.https(
         'generativelanguage.googleapis.com',
-        '/v1/models/$model:generateContent',
+        '/v1beta/models/$model:generateContent',
       );
 
       try {
@@ -620,8 +601,8 @@ $prompt
                   },
                 ],
                 'generationConfig': {
-                  'temperature': 0.4,
-                  'maxOutputTokens': 450,
+                  'temperature': 0.1,
+                  'maxOutputTokens': 800,
                 },
               }),
             )

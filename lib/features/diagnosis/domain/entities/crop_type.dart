@@ -32,7 +32,7 @@ extension CropTypeExtension on CropType {
       case CropType.maize:
         return '🌽';
       case CropType.cassava:
-        return '🫘';
+        return '🌿';
       case CropType.tomato:
         return '🍅';
     }
