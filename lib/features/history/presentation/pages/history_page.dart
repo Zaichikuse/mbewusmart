@@ -4,6 +4,7 @@ import '../../../../core/di/injection_container.dart' as di;
 import '../../../../core/services/ai_assistant_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../../../auth/domain/entities/user.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import '../../../diagnosis/domain/entities/diagnosis_result.dart';
@@ -46,7 +47,9 @@ class _HistoryPageState extends State<HistoryPage>
     _assistantService.setCurrentUiContext(
       safeInitialTab == 1 ? 'Reports' : 'History',
     );
-    final userId = context.read<AuthBloc>().state.user?.id;
+    final authState = context.read<AuthBloc>().state;
+    final user = authState.user;
+    final userId = user?.role == UserRole.agricultureManager ? null : user?.id;
     context.read<DiagnosisBloc>().add(
       DiagnosisHistoryRequested(userId: userId),
     );
@@ -64,7 +67,9 @@ class _HistoryPageState extends State<HistoryPage>
     final isChichewa = settingsState is SettingsLoaded
         ? settingsState.languageCode == 'ny'
         : true;
-    final userId = context.read<AuthBloc>().state.user?.id;
+    final authState = context.read<AuthBloc>().state;
+    final user = authState.user;
+    final userId = user?.role == UserRole.agricultureManager ? null : user?.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -106,7 +111,10 @@ class _HistoryPageState extends State<HistoryPage>
 
           return RefreshIndicator(
             onRefresh: () async {
-              final userId = context.read<AuthBloc>().state.user?.id;
+              final authState = context.read<AuthBloc>().state;
+              final user = authState.user;
+              final userId =
+                  user?.role == UserRole.agricultureManager ? null : user?.id;
               context.read<DiagnosisBloc>().add(
                 DiagnosisHistoryRequested(userId: userId),
               );

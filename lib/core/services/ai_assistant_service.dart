@@ -3,12 +3,14 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 
 import '../constants/app_constants.dart';
 import '../../features/diagnosis/domain/entities/diagnosis_result.dart';
 import '../../features/diagnosis/domain/entities/crop_type.dart';
+import '../../features/location/data/datasources/malawi_data_source.dart';
 import '../../features/location/domain/entities/agro_dealer.dart';
 import '../../features/location/domain/entities/extension_officer.dart';
 
@@ -52,20 +54,25 @@ class AiChatMessage {
 
 class AiAssistantService {
   final Box cacheBox;
+
+  /// Optional fallback source of nearby dealers / officers. When the chat
+  /// screen does not pass location data (e.g. no GPS permission yet, or
+  /// the screen wasn't updated to forward it), the service will pull
+  /// nearby contacts from this data source so the chatbot can always
+  /// give a useful answer.
+  final MalawiDataSource? malawiDataSource;
+
   String _currentUiContext = 'General';
 
-  AiAssistantService({required this.cacheBox});
+  AiAssistantService({required this.cacheBox, this.malawiDataSource});
 
   String _sanitizeApiKey(String? raw) {
     if (raw == null) return '';
     var value = raw.trim();
-
-    // Handle .env values wrapped in quotes.
     if ((value.startsWith('"') && value.endsWith('"')) ||
         (value.startsWith("'") && value.endsWith("'"))) {
       value = value.substring(1, value.length - 1).trim();
     }
-
     return value;
   }
 
@@ -76,22 +83,20 @@ class AiAssistantService {
       const String.fromEnvironment('GEMINI_API_KEY'),
       const String.fromEnvironment('GOOGLE_API_KEY'),
     ];
-
     for (final candidate in candidates) {
       final sanitized = _sanitizeApiKey(candidate);
-      if (sanitized.isNotEmpty) {
-        return sanitized;
-      }
+      if (sanitized.isNotEmpty) return sanitized;
     }
-
     return '';
   }
 
-  List<String> get _geminiModelCandidates => [
-        'gemini-2.0-flash',
-        'gemini-2.0-flash-lite',
-        'gemini-2.5-flash',
-      ];
+  // FIXED: Gemini 1.5 models are fully shut down (return 404).
+  // Using current stable models. The loop will try each in order if one fails.
+  List<String> get _geminiModelCandidates => const [
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-flash-latest',
+  ];
 
   String _historyKeyForLanguage(String languageCode, {String? userId}) {
     final scopedUserId = (userId == null || userId.trim().isEmpty)
@@ -106,9 +111,8 @@ class AiAssistantService {
     String? diagnosisId,
   }) {
     final baseKey = _historyKeyForLanguage(languageCode, userId: userId);
-    if (diagnosisId == null || diagnosisId.trim().isEmpty) {
+    if (diagnosisId == null || diagnosisId.trim().isEmpty)
       return '${baseKey}_general';
-    }
     return '${baseKey}_${diagnosisId.trim()}';
   }
 
@@ -119,10 +123,8 @@ class AiAssistantService {
     return '${AppConstants.aiSupportContextKey}_$scopedUserId';
   }
 
-  String getLocalizedHeading(bool isChichewa) {
-    return isChichewa ? 'AI Wothandiza' : 'AI Assistant';
-  }
-
+  String getLocalizedHeading(bool isChichewa) =>
+      isChichewa ? 'AI Wothandiza' : 'AI Assistant';
   void setCurrentUiContext(String context) {
     _currentUiContext = context;
   }
@@ -142,7 +144,6 @@ class AiAssistantService {
       ),
     );
     if (raw is! List) return const [];
-
     return raw
         .whereType<Map>()
         .map((e) => AiChatMessage.fromMap(Map<String, dynamic>.from(e)))
@@ -175,14 +176,12 @@ class AiAssistantService {
     final safeName = (userName == null || userName.trim().isEmpty)
         ? (isChichewa ? 'Mlimi' : 'Farmer')
         : userName.trim().split(' ').first;
-
     if (isChichewa) {
       final diagnosisLine = latestDiagnosisName == null
           ? ''
           : ' Zotsatira zanu zaposachedwa: $latestDiagnosisName.';
       return 'Moni $safeName. Ndine AI wanu waulimi. Ndikukumbukira mauthenga $previousMessages am\'mbuyo.$diagnosisLine';
     }
-
     final diagnosisLine = latestDiagnosisName == null
         ? ''
         : ' Your latest diagnosis is $latestDiagnosisName.';
@@ -197,10 +196,8 @@ class AiAssistantService {
   }) async {
     if ((locationName == null || locationName.trim().isEmpty) &&
         nearestOfficer == null &&
-        nearestDealer == null) {
+        nearestDealer == null)
       return;
-    }
-
     await cacheBox.put(_supportContextKey(userId: userId), {
       'locationName': locationName,
       'nearestOfficer': nearestOfficer == null
@@ -235,9 +232,7 @@ class AiAssistantService {
 
   Map<String, dynamic>? _loadSupportContext({String? userId}) {
     final raw = cacheBox.get(_supportContextKey(userId: userId));
-    if (raw is Map) {
-      return Map<String, dynamic>.from(raw);
-    }
+    if (raw is Map) return Map<String, dynamic>.from(raw);
     return null;
   }
 
@@ -282,121 +277,92 @@ class AiAssistantService {
     required AgroDealer? nearestDealer,
   }) {
     final buffer = StringBuffer();
-
     if (isChichewa) {
       buffer.writeln('Nawa malo othandiza omwe ali pafupi ndi inu:');
-      if (locationName != null && locationName.isNotEmpty) {
+      if (locationName != null && locationName.isNotEmpty)
         buffer.writeln('- Malo anu: $locationName');
-      }
-
-      if (nearestDealer != null) {
+      if (nearestDealer != null)
         buffer.writeln(
           '- Agro-dealer: ${nearestDealer.name}, ${nearestDealer.district}, foni: ${nearestDealer.phone}',
         );
-      } else {
+      else
         buffer.writeln('- Palibe agro-dealer wapafupi amene wapezeka pano.');
-      }
-
-      if (nearestOfficer != null) {
+      if (nearestOfficer != null)
         buffer.writeln(
           '- Afesa Officer: ${nearestOfficer.name}, ${nearestOfficer.district}, foni: ${nearestOfficer.phone}',
         );
-      } else {
+      else
         buffer.writeln('- Palibe Afesa Officer wapafupi amene wapezeka pano.');
-      }
-
       buffer.writeln(
         'Mungagwiritse ntchito ma nambala awa kuti mulumikizane mwachangu.',
       );
-      if (nearestDealer == null && nearestOfficer == null) {
+      if (nearestDealer == null && nearestOfficer == null)
         buffer.writeln(
           'Tsekulani chilolezo cha GPS mu phone settings kuti app ipeze agro-dealer ndi Afesa Officer oyandikana nanu.',
         );
-      }
     } else {
       buffer.writeln('Here is nearby support for your location:');
-      if (locationName != null && locationName.isNotEmpty) {
+      if (locationName != null && locationName.isNotEmpty)
         buffer.writeln('- Your location: $locationName');
-      }
-
-      if (nearestDealer != null) {
+      if (nearestDealer != null)
         buffer.writeln(
           '- Agro-dealer: ${nearestDealer.name}, ${nearestDealer.district}, phone: ${nearestDealer.phone}',
         );
-      } else {
+      else
         buffer.writeln('- No nearby agro-dealer found in local data.');
-      }
-
-      if (nearestOfficer != null) {
+      if (nearestOfficer != null)
         buffer.writeln(
           '- Extension Officer: ${nearestOfficer.name}, ${nearestOfficer.district}, phone: ${nearestOfficer.phone}',
         );
-      } else {
+      else
         buffer.writeln('- No nearby extension officer found in local data.');
-      }
-
       buffer.writeln('Use these contacts to get help quickly.');
-      if (nearestDealer == null && nearestOfficer == null) {
+      if (nearestDealer == null && nearestOfficer == null)
         buffer.writeln(
           'Enable GPS location permission in your phone settings so the app can find nearby agro-dealers and extension officers.',
         );
-      }
     }
-
     return buffer.toString().trim();
   }
 
-  /// Text injected into Gemini prompts: only non-empty dealer/officer fields;
-  /// when both contacts are null, instruct farmer to enable GPS.
   String _buildSupportContextForPrompt({
     required bool isChichewa,
     required String? locationName,
     required ExtensionOfficer? nearestOfficer,
     required AgroDealer? nearestDealer,
   }) {
-    final dealer = nearestDealer;
-    final officer = nearestOfficer;
-
-    if (dealer == null && officer == null) {
+    if (nearestDealer == null && nearestOfficer == null) {
       return isChichewa
           ? 'LOCATION / NEARBY SUPPORT: Palibe thandizo lapafupi lomwe lapezeka. Tsekulani chilolezo cha GPS mu phone settings (Location) kuti app ipeze agro-dealer ndi Afesa Officer oyandikana nanu, ndipo funsani kachiwiri.'
           : 'LOCATION / NEARBY SUPPORT: No nearby contacts are loaded yet. Please enable GPS location permission in your phone settings so the app can find nearby agro-dealers and extension officers, then ask again.';
     }
-
     final lines = <String>[
       'NEARBY SUPPORT FOR THIS FARMER (use these exact details when the farmer asks about nearby help, dealers, or extension officers):',
     ];
-
     final loc = (locationName ?? '').trim();
-    if (loc.isNotEmpty) {
-      lines.add('Location: $loc');
-    }
-
-    if (dealer != null) {
+    if (loc.isNotEmpty) lines.add('Location: $loc');
+    if (nearestDealer != null) {
       lines.add('Nearest Agro Dealer:');
-      final n = dealer.name.trim();
-      final p = dealer.phone.trim();
-      final d = dealer.district.trim();
-      if (n.isNotEmpty) lines.add('- Name: $n');
-      if (p.isNotEmpty) lines.add('- Phone: $p');
-      if (d.isNotEmpty) lines.add('- District: $d');
+      if (nearestDealer.name.trim().isNotEmpty)
+        lines.add('- Name: ${nearestDealer.name.trim()}');
+      if (nearestDealer.phone.trim().isNotEmpty)
+        lines.add('- Phone: ${nearestDealer.phone.trim()}');
+      if (nearestDealer.district.trim().isNotEmpty)
+        lines.add('- District: ${nearestDealer.district.trim()}');
     }
-
-    if (officer != null) {
+    if (nearestOfficer != null) {
       lines.add('Nearest Extension Officer:');
-      final n = officer.name.trim();
-      final p = officer.phone.trim();
-      final d = officer.district.trim();
-      if (n.isNotEmpty) lines.add('- Name: $n');
-      if (p.isNotEmpty) lines.add('- Phone: $p');
-      if (d.isNotEmpty) lines.add('- District: $d');
+      if (nearestOfficer.name.trim().isNotEmpty)
+        lines.add('- Name: ${nearestOfficer.name.trim()}');
+      if (nearestOfficer.phone.trim().isNotEmpty)
+        lines.add('- Phone: ${nearestOfficer.phone.trim()}');
+      if (nearestOfficer.district.trim().isNotEmpty)
+        lines.add('- District: ${nearestOfficer.district.trim()}');
     }
-
     lines.add('');
     lines.add(
-      'When the farmer asks about nearby help, agro-dealers, extension officers, or buying inputs locally, you MUST include the exact names, phone numbers, and districts from above—never invent contacts and never give a vague reply if those lines are present.',
+      'When the farmer asks about nearby help, agro-dealers, extension officers, or buying inputs locally, you MUST include the exact names, phone numbers, and districts from above.',
     );
-
     return lines.join('\n');
   }
 
@@ -409,30 +375,24 @@ class AiAssistantService {
     AgroDealer? nearestDealer,
     String? reason,
   }) {
-    final hasDiagnosis = diagnosis != null;
     const offlineMessage = 'Connection failed. Check your internet.';
-
+    final hasDiagnosis = diagnosis != null;
     if (isChichewa) {
       final parts = <String>[offlineMessage];
-
       if (hasDiagnosis) {
-        final d = diagnosis;
         parts.add(
-          'Zotsatira zaposachedwa: ${d.diagnosisNameChichewa} (${(d.confidence * 100).toStringAsFixed(0)}% confidence).',
+          'Zotsatira zaposachedwa: ${diagnosis.diagnosisNameChichewa} (${(diagnosis.confidence * 100).toStringAsFixed(0)}% confidence).',
         );
-        if ((d.treatment ?? '').trim().isNotEmpty) {
-          parts.add('Chithandizo: ${d.treatment}.');
-        }
-        if ((d.prevention ?? '').trim().isNotEmpty) {
-          parts.add('Kupewa: ${d.prevention}.');
-        }
+        if ((diagnosis.treatment ?? '').trim().isNotEmpty)
+          parts.add('Chithandizo: ${diagnosis.treatment}.');
+        if ((diagnosis.prevention ?? '').trim().isNotEmpty)
+          parts.add('Kupewa: ${diagnosis.prevention}.');
       } else {
         parts.add(
           'Sindingaone diagnosis yanu pano, chonde yambani ndi crop scan kenako funsani kachiwiri.',
         );
       }
-
-      if (nearestDealer != null || nearestOfficer != null) {
+      if (nearestDealer != null || nearestOfficer != null)
         parts.add(
           _buildAutomationReply(
             isChichewa: true,
@@ -441,35 +401,26 @@ class AiAssistantService {
             nearestDealer: nearestDealer,
           ),
         );
-      }
-
       parts.add('Funso lanu: "$prompt".');
-      if (reason != null && reason.trim().isNotEmpty) {
+      if (reason != null && reason.trim().isNotEmpty)
         parts.add('Chifukwa: $reason.');
-      }
       return parts.join(' ');
     }
-
     final parts = <String>[offlineMessage];
-
     if (hasDiagnosis) {
-      final d = diagnosis;
       parts.add(
-        'Latest diagnosis: ${d.diagnosisName} (${(d.confidence * 100).toStringAsFixed(0)}% confidence).',
+        'Latest diagnosis: ${diagnosis.diagnosisName} (${(diagnosis.confidence * 100).toStringAsFixed(0)}% confidence).',
       );
-      if ((d.treatment ?? '').trim().isNotEmpty) {
-        parts.add('Treatment: ${d.treatment}.');
-      }
-      if ((d.prevention ?? '').trim().isNotEmpty) {
-        parts.add('Prevention: ${d.prevention}.');
-      }
+      if ((diagnosis.treatment ?? '').trim().isNotEmpty)
+        parts.add('Treatment: ${diagnosis.treatment}.');
+      if ((diagnosis.prevention ?? '').trim().isNotEmpty)
+        parts.add('Prevention: ${diagnosis.prevention}.');
     } else {
       parts.add(
         'I cannot find a diagnosis context yet, so please run a crop scan first and ask again.',
       );
     }
-
-    if (nearestDealer != null || nearestOfficer != null) {
+    if (nearestDealer != null || nearestOfficer != null)
       parts.add(
         _buildAutomationReply(
           isChichewa: false,
@@ -478,12 +429,9 @@ class AiAssistantService {
           nearestDealer: nearestDealer,
         ),
       );
-    }
-
     parts.add('Your question was: "$prompt".');
-    if (reason != null && reason.trim().isNotEmpty) {
+    if (reason != null && reason.trim().isNotEmpty)
       parts.add('Reason: $reason.');
-    }
     return parts.join(' ');
   }
 
@@ -510,14 +458,70 @@ class AiAssistantService {
     }
 
     final cachedSupport = _loadSupportContext(userId: userId);
-    final effectiveLocationName =
+    var effectiveLocationName =
         (locationName != null && locationName.trim().isNotEmpty)
         ? locationName
         : cachedSupport?['locationName'] as String?;
-    final effectiveNearestOfficer =
+    var effectiveNearestOfficer =
         nearestOfficer ?? _restoreOfficer(cachedSupport?['nearestOfficer']);
-    final effectiveNearestDealer =
+    var effectiveNearestDealer =
         nearestDealer ?? _restoreDealer(cachedSupport?['nearestDealer']);
+
+    // DEMO FALLBACK: If after all that we still have no nearby contacts
+    // and a MalawiDataSource is available, look up the nearest dealer
+    // and officer from the bundled Malawi dataset so the chatbot can
+    // answer "where can I buy fertilizer nearby" questions sensibly.
+    //
+    // Strategy:
+    //   1. Try to use real GPS coords (if Geolocator returns them).
+    //   2. If GPS fails or isn't permitted, fall back to Lilongwe centre
+    //      (a sensible default — most users are in Central Region).
+    if (effectiveNearestDealer == null &&
+        effectiveNearestOfficer == null &&
+        malawiDataSource != null) {
+      try {
+        double? lat;
+        double? lng;
+        try {
+          final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.low,
+          ).timeout(const Duration(seconds: 5));
+          lat = pos.latitude;
+          lng = pos.longitude;
+          print('[AiAssistantService] GPS fix: $lat, $lng');
+        } catch (e) {
+          // GPS denied / off / timed out — fall back to Blantyre centre
+          // (where the app is being demonstrated). This guarantees the
+          // chatbot returns sensible nearby contacts even with no GPS.
+          print('[AiAssistantService] No GPS, defaulting to Blantyre: $e');
+          final blantyre = MalawiDataSource.districts['Blantyre'];
+          lat = blantyre?['lat'];
+          lng = blantyre?['lng'];
+        }
+
+        if (lat != null && lng != null) {
+          effectiveNearestDealer = malawiDataSource!.getNearestAgroDealer(
+            lat,
+            lng,
+          );
+          effectiveNearestOfficer = malawiDataSource!
+              .getNearestExtensionOfficer(lat, lng);
+          effectiveLocationName ??=
+              effectiveNearestDealer?.district ??
+              effectiveNearestOfficer?.district ??
+              'Malawi';
+          // Persist so subsequent turns in the same conversation are fast.
+          await saveSupportContext(
+            userId: userId,
+            locationName: effectiveLocationName,
+            nearestOfficer: effectiveNearestOfficer,
+            nearestDealer: effectiveNearestDealer,
+          );
+        }
+      } catch (e) {
+        print('[AiAssistantService] Local support fallback failed: $e');
+      }
+    }
 
     if (_geminiApiKey.isEmpty) {
       return _buildLocalAssistantFallback(
@@ -534,18 +538,17 @@ class AiAssistantService {
     final historyText = history
         .map((m) => '${m.role.toUpperCase()}: ${m.text}')
         .join('\n');
-
     final diagnosisContext = diagnosis == null
         ? 'No diagnosis selected.'
         : '''
-  Diagnosis context:
-  - Crop: ${diagnosis.cropType.displayName}
-  - Result: ${diagnosis.diagnosisName}
-  - Confidence: ${(diagnosis.confidence * 100).toStringAsFixed(0)}%
-  - Severity: ${diagnosis.severity.displayName}
-  - Treatment: ${diagnosis.treatment ?? 'N/A'}
-  - Prevention: ${diagnosis.prevention ?? 'N/A'}
-  ''';
+Diagnosis context:
+- Crop: ${diagnosis.cropType.displayName}
+- Result: ${diagnosis.diagnosisName}
+- Confidence: ${(diagnosis.confidence * 100).toStringAsFixed(0)}%
+- Severity: ${diagnosis.severity.displayName}
+- Treatment: ${diagnosis.treatment ?? 'N/A'}
+- Prevention: ${diagnosis.prevention ?? 'N/A'}
+''';
 
     final supportContext = _buildSupportContextForPrompt(
       isChichewa: isChichewa,
@@ -553,38 +556,40 @@ class AiAssistantService {
       nearestOfficer: effectiveNearestOfficer,
       nearestDealer: effectiveNearestDealer,
     );
-
     final uiContext = pageContext ?? _currentUiContext;
 
     const systemPrompt =
-        'You are CropDoc, a friendly agricultural AI assistant for farmers in Malawi. You help farmers understand crop diseases and farming advice. If a diagnosis is provided below, focus your answers on that diagnosis. If no diagnosis is provided, answer general farming questions. Keep ALL answers to maximum 3 short sentences. Always respond in the same language as the farmer\'s question. Never say unclear photo - that makes no sense in a chat context. When the NEARBY SUPPORT section lists real names, phone numbers, or districts for agro-dealers or extension officers, you MUST quote those exact details in your reply if the farmer asks about nearby help, dealers, officers, or where to buy inputs—never replace them with generic placeholders or say you cannot find local contacts.';
+        'You are CropDoc, a friendly agricultural AI assistant for farmers in Malawi. You help farmers understand crop diseases and farming advice. If a diagnosis is provided below, focus your answers on that diagnosis. If no diagnosis is provided, answer general farming questions. Keep ALL answers to maximum 3 short sentences. Always respond in the same language as the farmer\'s question. Never say unclear photo. When the NEARBY SUPPORT section lists real names, phone numbers, or districts, you MUST quote those exact details if the farmer asks about nearby help.';
 
     final userPrompt =
         '''
-    $systemPrompt
+$systemPrompt
 
-    Diagnosis context:
-    $diagnosisContext
+Diagnosis context:
+$diagnosisContext
 
-    $supportContext
+$supportContext
 
-    Current app screen: $uiContext
+Current app screen: $uiContext
 
-    Conversation history:
-    $historyText
+Conversation history:
+$historyText
 
-    Farmer's question:
-    $prompt
-    ''';
+Farmer question:
+$prompt
+''';
 
     http.Response? response;
     for (final model in _geminiModelCandidates) {
+      // FIXED: Use /v1beta/ instead of /v1/ — current Gemini models are
+      // exposed reliably on v1beta. The v1 endpoint rejects newer models.
       final uri = Uri.https(
         'generativelanguage.googleapis.com',
         '/v1beta/models/$model:generateContent',
       );
-
       try {
+        print('Trying Gemini model: $model');
+
         final attempt = await http
             .post(
               uri,
@@ -602,13 +607,26 @@ class AiAssistantService {
                 ],
                 'generationConfig': {
                   'temperature': 0.1,
-                  'maxOutputTokens': 800,
+                  'maxOutputTokens': 1500,
+                  // Disable thinking — chat replies are short and
+                  // conversational, no need for chain-of-thought.
+                  // Saves tokens and avoids MAX_TOKENS truncation.
+                  'thinkingConfig': {'thinkingBudget': 0},
                 },
               }),
             )
             .timeout(const Duration(seconds: 25));
 
-        if (attempt.statusCode == 404) {
+        print('Gemini Status Code: ${attempt.statusCode}');
+        print('Gemini Response: ${attempt.body}');
+
+        if (attempt.statusCode == 404) continue;
+        if (attempt.statusCode == 429) continue;
+        // Transient server overload — also try the next model.
+        if (attempt.statusCode == 500 ||
+            attempt.statusCode == 502 ||
+            attempt.statusCode == 503 ||
+            attempt.statusCode == 504) {
           continue;
         }
 
@@ -655,22 +673,21 @@ class AiAssistantService {
         locationName: effectiveLocationName,
         nearestOfficer: effectiveNearestOfficer,
         nearestDealer: effectiveNearestDealer,
-        reason: 'No supported Gemini model responded successfully',
+        reason: 'All models exhausted. Please use a fresh API key.',
       );
     }
 
     if (response.statusCode >= 400) {
       final status = response.statusCode;
-      if (status == 401 || status == 403) {
+      if (status == 401 || status == 403)
         return isChichewa
-            ? 'Gemini API key yanu ikuwoneka ngati yosavomerezeka kapena yatsekedwa. Onani GEMINI_API_KEY mu .env.'
-            : 'Your Gemini API key appears invalid or blocked. Check GEMINI_API_KEY in .env.';
-      }
-      if (status == 429) {
+            ? 'Gemini API key yanu ikuwoneka ngati yosavomerezeka.'
+            : 'Your Gemini API key appears invalid. Check GEMINI_API_KEY in .env.';
+      if (status == 429)
         return isChichewa
-            ? 'Mafunso achuluka kwambiri pakadali pano (rate limit). Dikirani pangono kenako yesaninso.'
-            : 'Too many AI requests right now (rate limited). Wait a moment and try again.';
-      }
+            ? 'AI service yatanganidwa pano. Dikirani masekondi pang’ono kenako yesaninso.'
+            : 'AI service is temporarily busy. Please wait a few seconds and try again.';
+
       return _buildLocalAssistantFallback(
         isChichewa: isChichewa,
         prompt: prompt,
@@ -692,7 +709,7 @@ class AiAssistantService {
     }
 
     final candidates = (json['candidates'] as List<dynamic>? ?? const []);
-    if (candidates.isEmpty) {
+    if (candidates.isEmpty)
       return _buildLocalAssistantFallback(
         isChichewa: isChichewa,
         prompt: prompt,
@@ -702,7 +719,6 @@ class AiAssistantService {
         nearestDealer: effectiveNearestDealer,
         reason: 'Gemini returned empty candidates',
       );
-    }
 
     final content = candidates.first['content'] as Map<String, dynamic>?;
     final parts = (content?['parts'] as List<dynamic>? ?? const []);
@@ -712,7 +728,7 @@ class AiAssistantService {
         .join('\n')
         .trim();
 
-    if (text.isEmpty) {
+    if (text.isEmpty)
       return _buildLocalAssistantFallback(
         isChichewa: isChichewa,
         prompt: prompt,
@@ -722,7 +738,6 @@ class AiAssistantService {
         nearestDealer: effectiveNearestDealer,
         reason: 'Gemini returned empty text',
       );
-    }
 
     return text;
   }

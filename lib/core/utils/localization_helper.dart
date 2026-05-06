@@ -4,19 +4,40 @@ import '../../l10n/app_localizations.dart';
 import '../../features/settings/presentation/bloc/settings_bloc.dart';
 
 class LocalizationHelper {
-  static AppLocalizations? getAppLocalizations(BuildContext context) {
-    return AppLocalizations.of(context);
+  /// Get AppLocalizations from context (uses Material's LocalizationsDelegate system)
+  static AppLocalizations getAppLocalizations(BuildContext context) {
+    final appLoc = AppLocalizations.of(context);
+    if (appLoc == null) {
+      throw Exception(
+        'AppLocalizations not found in context. '
+        'Make sure LocalizationsDelegates are properly configured.',
+      );
+    }
+    return appLoc;
+  }
+
+  /// Watch language code from SettingsBloc (rebuilds on language change)
+  static String watchLanguageCode(BuildContext context) {
+    final settingsState = context.watch<SettingsBloc>().state;
+    return settingsState is SettingsLoaded ? settingsState.languageCode : 'ny';
+  }
+
+  /// Read language code without rebuilding
+  static String readLanguageCode(BuildContext context) {
+    try {
+      final settingsState = context.read<SettingsBloc>().state;
+      return settingsState is SettingsLoaded
+          ? settingsState.languageCode
+          : 'ny';
+    } catch (e) {
+      return 'ny';
+    }
   }
 
   static bool isChichewa(BuildContext context) {
-    try {
-      final settingsState = context.read<SettingsBloc>().state;
-      return settingsState is SettingsLoaded 
-          ? settingsState.languageCode == 'ny' 
-          : true;
-    } catch (e) {
-      return true;
-    }
+    // IMPORTANT: depend on Localizations so widgets rebuild when locale changes,
+    // even if they don't watch SettingsBloc directly.
+    return Localizations.localeOf(context).languageCode == 'ny';
   }
 
   static bool isEnglish(BuildContext context) {
@@ -24,16 +45,13 @@ class LocalizationHelper {
   }
 
   static Locale getCurrentLocale(BuildContext context) {
-    try {
-      final settingsState = context.read<SettingsBloc>().state;
-      if (settingsState is SettingsLoaded) {
-        final code = settingsState.languageCode;
-        return code == 'ny' ? const Locale('ny', 'MW') : const Locale('en');
-      }
-    } catch (e) {
-      // Fall through to default
-    }
-    return const Locale('ny', 'MW');
+    final locale = Localizations.localeOf(context);
+    return locale.languageCode == 'ny' ? const Locale('ny', 'MW') : const Locale('en');
+  }
+
+  /// Get current locale from Material context (most reliable)
+  static Locale getLocaleFromContext(BuildContext context) {
+    return Localizations.localeOf(context);
   }
 
   static String translate(BuildContext context, String key) {
@@ -45,11 +63,11 @@ class LocalizationHelper {
     }
   }
 
+  /// Get time-based greeting that updates with language changes
   static String getGreeting(BuildContext context) {
     final appLoc = getAppLocalizations(context);
-    if (appLoc == null) return 'Moni';
-
     final hour = DateTime.now().hour;
+
     if (hour < 12) {
       return appLoc.greetingMorning;
     } else if (hour < 17) {
@@ -61,7 +79,6 @@ class LocalizationHelper {
 
   static String getLocalizedRoleName(BuildContext context, String role) {
     final appLoc = getAppLocalizations(context);
-    if (appLoc == null) return role;
 
     switch (role.toLowerCase()) {
       case 'farmer':
@@ -82,7 +99,6 @@ class LocalizationHelper {
 
   static String getLocalizedSeverity(BuildContext context, String severity) {
     final appLoc = getAppLocalizations(context);
-    if (appLoc == null) return severity;
 
     switch (severity.toLowerCase()) {
       case 'low':
@@ -98,7 +114,6 @@ class LocalizationHelper {
 
   static String getLocalizedDiagnosisType(BuildContext context, String type) {
     final appLoc = getAppLocalizations(context);
-    if (appLoc == null) return type;
 
     switch (type.toLowerCase()) {
       case 'disease':

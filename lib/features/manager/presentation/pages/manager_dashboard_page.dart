@@ -8,6 +8,8 @@ import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import '../../../reports/data/services/report_service.dart';
 import '../../../reports/domain/entities/diagnosis_report.dart';
+import 'manager_reports_page.dart';
+import 'manager_alerts_page.dart';
 
 class ManagerDashboardPage extends StatefulWidget {
   const ManagerDashboardPage({super.key});
@@ -185,6 +187,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                         label: isChichewa ? 'Zopima Zonse' : 'Total Diagnoses',
                         value: totalDiagnoses.toString(),
                         color: AppTheme.primaryGreen,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ManagerReportsPage(
+                                initialFilter: ManagerReportsFilter.allDiagnoses,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -194,6 +205,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                         label: isChichewa ? 'Ma Alert' : 'Total Alerts',
                         value: totalAlerts.toString(),
                         color: AppTheme.warningAmber,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ManagerAlertsPage(),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -207,6 +225,16 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                         label: isChichewa ? 'Zosabwerera' : 'Pending',
                         value: pendingAlerts.toString(),
                         color: AppTheme.diseaseRed,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ManagerReportsPage(
+                                initialFilter:
+                                    ManagerReportsFilter.pendingOnly,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -216,6 +244,16 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                         label: isChichewa ? 'Zachapa' : 'Resolved',
                         value: resolvedAlerts.toString(),
                         color: AppTheme.healthyGreen,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ManagerReportsPage(
+                                initialFilter:
+                                    ManagerReportsFilter.reviewedOnly,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -233,31 +271,39 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     required String label,
     required String value,
     required Color color,
+    VoidCallback? onTap,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(height: 8),
-          Text(value, style: AppTextStyles.headingMedium),
-          Text(
-            label,
-            style: AppTextStyles.caption,
-            textAlign: TextAlign.center,
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 28),
+              const SizedBox(height: 8),
+              Text(value, style: AppTextStyles.headingMedium),
+              Text(
+                label,
+                style: AppTextStyles.caption,
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

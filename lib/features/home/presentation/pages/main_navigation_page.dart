@@ -3,18 +3,19 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/di/injection_container.dart' as di;
 import '../../../../core/services/ai_assistant_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/localization_helper.dart';
+import '../../../../l10n/app_localizations.dart';
 import '../../../scan/presentation/pages/scan_page.dart';
 import '../../../history/presentation/pages/history_page.dart';
 import '../../../history/presentation/widgets/ai_assistant_tab.dart';
 import '../../../settings/presentation/pages/settings_page.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/domain/entities/user.dart';
-import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../extension_officer/presentation/pages/officer_dashboard_page.dart';
 import '../../../manager/presentation/pages/manager_dashboard_page.dart';
 import '../../../agro_dealer/presentation/pages/dealer_dashboard_page.dart';
 import '../../../connectivity/presentation/bloc/connectivity_bloc.dart';
-import '.dart';
+import '../../../home/presentation/pages/home_page.dart';
 
 class MainNavigationPage extends StatefulWidget {
   final int initialIndex;
@@ -47,14 +48,12 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
 
   @override
   Widget build(BuildContext context) {
+    final appLoc = LocalizationHelper.getAppLocalizations(context);
     final userRole = _getUserRole();
     final pages = _getPagesForRole(userRole);
-    final navItems = _getNavItemsForRole(userRole);
+    final navItems = _getNavItemsForRole(userRole, appLoc);
     final isSettingsTab = _currentIndex == navItems.length - 1;
-    final settingsState = context.watch<SettingsBloc>().state;
-    final isChichewa = settingsState is SettingsLoaded
-        ? settingsState.languageCode == 'ny'
-        : true;
+    final isChichewa = LocalizationHelper.isChichewa(context);
 
     return Scaffold(
       body: Column(
@@ -182,83 +181,86 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     }
   }
 
-  List<BottomNavigationBarItem> _getNavItemsForRole(UserRole role) {
+  List<BottomNavigationBarItem> _getNavItemsForRole(
+    UserRole role,
+    AppLocalizations appLoc,
+  ) {
     switch (role) {
       case UserRole.farmer:
-        return const [
+        return [
           BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: 'Home',
+            icon: const Icon(Icons.home_outlined),
+            activeIcon: const Icon(Icons.home),
+            label: appLoc.home,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.camera_alt_outlined),
-            activeIcon: Icon(Icons.camera_alt),
-            label: 'Scan',
+            icon: const Icon(Icons.camera_alt_outlined),
+            activeIcon: const Icon(Icons.camera_alt),
+            label: appLoc.scan,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.history_outlined),
-            activeIcon: Icon(Icons.history),
-            label: 'History',
+            icon: const Icon(Icons.history_outlined),
+            activeIcon: const Icon(Icons.history),
+            label: appLoc.history,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings_outlined),
-            activeIcon: Icon(Icons.settings),
-            label: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            activeIcon: const Icon(Icons.settings),
+            label: appLoc.settings,
           ),
         ];
       case UserRole.extensionOfficer:
-        return const [
+        return [
           BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard_outlined),
-            activeIcon: Icon(Icons.dashboard),
-            label: 'Dashboard',
+            icon: const Icon(Icons.dashboard_outlined),
+            activeIcon: const Icon(Icons.dashboard),
+            label: appLoc.dashboard,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.history_outlined),
-            activeIcon: Icon(Icons.history),
-            label: 'History',
+            icon: const Icon(Icons.history_outlined),
+            activeIcon: const Icon(Icons.history),
+            label: appLoc.history,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings_outlined),
-            activeIcon: Icon(Icons.settings),
-            label: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            activeIcon: const Icon(Icons.settings),
+            label: appLoc.settings,
           ),
         ];
       case UserRole.agricultureManager:
-        return const [
+        return [
           BottomNavigationBarItem(
-            icon: Icon(Icons.admin_panel_settings_outlined),
-            activeIcon: Icon(Icons.admin_panel_settings),
-            label: 'Dashboard',
+            icon: const Icon(Icons.admin_panel_settings_outlined),
+            activeIcon: const Icon(Icons.admin_panel_settings),
+            label: appLoc.dashboard,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.history_outlined),
-            activeIcon: Icon(Icons.history),
-            label: 'History',
+            icon: const Icon(Icons.history_outlined),
+            activeIcon: const Icon(Icons.history),
+            label: appLoc.history,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings_outlined),
-            activeIcon: Icon(Icons.settings),
-            label: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            activeIcon: const Icon(Icons.settings),
+            label: appLoc.settings,
           ),
         ];
       case UserRole.agroDealer:
-        return const [
+        return [
           BottomNavigationBarItem(
-            icon: Icon(Icons.store_outlined),
-            activeIcon: Icon(Icons.store),
-            label: 'Dashboard',
+            icon: const Icon(Icons.store_outlined),
+            activeIcon: const Icon(Icons.store),
+            label: appLoc.dashboard,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.history_outlined),
-            activeIcon: Icon(Icons.history),
-            label: 'History',
+            icon: const Icon(Icons.history_outlined),
+            activeIcon: const Icon(Icons.history),
+            label: appLoc.history,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings_outlined),
-            activeIcon: Icon(Icons.settings),
-            label: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            activeIcon: const Icon(Icons.settings),
+            label: appLoc.settings,
           ),
         ];
     }

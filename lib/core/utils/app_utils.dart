@@ -1,21 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:intl/intl.dart';
+import 'localization_helper.dart';
 
 class AppUtils {
   AppUtils._();
 
-  static String getGreeting(BuildContext context, bool isChichewa) {
-    final hour = DateTime.now().hour;
-    if (isChichewa) {
-      if (hour < 12) return 'Mwadzuka bwanji?';
-      if (hour < 17) return 'Mwaswera bwanji?';
-      return 'Mwaswera bwanji?';
-    } else {
-      if (hour < 12) return 'Good morning';
-      if (hour < 17) return 'Good afternoon';
-      return 'Good evening';
-    }
+  static String getGreeting(BuildContext context) {
+    // Delegate to LocalizationHelper so greeting is tied to AppLocalizations.
+    return LocalizationHelper.getGreeting(context);
   }
 
   static String formatDate(DateTime date) {

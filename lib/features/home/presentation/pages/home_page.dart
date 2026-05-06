@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_utils.dart';
+import '../../../../core/utils/localization_helper.dart';
 import '../../../../shared/widgets/empty_state.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
+import '../../../../l10n/app_localizations.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
-import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../diagnosis/domain/entities/crop_type.dart';
 import '../../../diagnosis/domain/entities/diagnosis_result.dart';
 import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
@@ -40,21 +41,10 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  String _getLanguageCode() {
-    try {
-      final settingsState = context.read<SettingsBloc>().state;
-      if (settingsState is SettingsLoaded) {
-        return settingsState.languageCode;
-      }
-    } catch (e) {
-      // Use default
-    }
-    return 'ny';
-  }
-
   @override
   Widget build(BuildContext context) {
-    final isChichewa = _getLanguageCode() == 'ny';
+    final appLoc = LocalizationHelper.getAppLocalizations(context);
+    final isChichewa = LocalizationHelper.isChichewa(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -82,11 +72,11 @@ class _HomePageState extends State<HomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildGreetingCard(context, isChichewa),
+                _buildGreetingCard(context, appLoc, isChichewa),
                 const SizedBox(height: 24),
-                _buildQuickActions(context, isChichewa),
+                _buildQuickActions(context, appLoc, isChichewa),
                 const SizedBox(height: 24),
-                _buildRecentDiagnoses(context, isChichewa),
+                _buildRecentDiagnoses(context, appLoc, isChichewa),
               ],
             ),
           ),
@@ -95,7 +85,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildGreetingCard(BuildContext context, bool isChichewa) {
+  Widget _buildGreetingCard(
+    BuildContext context,
+    AppLocalizations appLoc,
+    bool isChichewa,
+  ) {
     String userName = isChichewa ? 'Mwandi' : 'Farmer';
 
     try {
@@ -123,7 +117,7 @@ class _HomePageState extends State<HomePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            AppUtils.getGreeting(context, isChichewa),
+            AppUtils.getGreeting(context),
             style: const TextStyle(fontSize: 16, color: Colors.white70),
           ),
           const SizedBox(height: 4),
@@ -137,9 +131,7 @@ class _HomePageState extends State<HomePage> {
           ),
           const SizedBox(height: 12),
           Text(
-            isChichewa
-                ? 'Tiyeni tipimshe zizolongo zanu'
-                : "Let's check your crops today",
+            appLoc.welcomeMessage,
             style: const TextStyle(fontSize: 14, color: Colors.white70),
           ),
         ],
@@ -147,7 +139,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildQuickActions(BuildContext context, bool isChichewa) {
+  Widget _buildQuickActions(
+    BuildContext context,
+    AppLocalizations appLoc,
+    bool isChichewa,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -161,7 +157,7 @@ class _HomePageState extends State<HomePage> {
             Expanded(
               child: _buildActionCard(
                 icon: Icons.camera_alt,
-                label: isChichewa ? 'Pima' : 'Scan',
+                label: appLoc.scan,
                 color: AppTheme.primaryGreen,
                 onTap: () {
                   Navigator.of(
@@ -174,7 +170,7 @@ class _HomePageState extends State<HomePage> {
             Expanded(
               child: _buildActionCard(
                 icon: Icons.history,
-                label: isChichewa ? 'Mbiri' : 'History',
+                label: appLoc.history,
                 color: AppTheme.accentOrange,
                 onTap: () {
                   Navigator.of(context).push(
@@ -191,7 +187,7 @@ class _HomePageState extends State<HomePage> {
             Expanded(
               child: _buildActionCard(
                 icon: Icons.location_on,
-                label: isChichewa ? 'Thandizo Langa' : 'Nearby Help',
+                label: appLoc.nearbyHelp,
                 color: AppTheme.warningAmber,
                 onTap: () {
                   Navigator.of(context).push(
@@ -204,7 +200,7 @@ class _HomePageState extends State<HomePage> {
             Expanded(
               child: _buildActionCard(
                 icon: Icons.analytics,
-                label: isChichewa ? 'Mrapato' : 'Reports',
+                label: appLoc.reports,
                 color: AppTheme.primaryGreenLight,
                 onTap: () {
                   Navigator.of(context).push(
@@ -258,7 +254,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildRecentDiagnoses(BuildContext context, bool isChichewa) {
+  Widget _buildRecentDiagnoses(
+    BuildContext context,
+    AppLocalizations appLoc,
+    bool isChichewa,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

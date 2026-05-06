@@ -49,7 +49,7 @@ class _LoginPageState extends State<LoginPage> {
                 Icon(Icons.eco, size: 80, color: AppTheme.primaryGreen),
                 const SizedBox(height: 16),
                 Text(
-                  AppUtils.getGreeting(context, isChichewa),
+                  AppUtils.getGreeting(context),
                   style: AppTextStyles.headingLarge,
                   textAlign: TextAlign.center,
                 ),

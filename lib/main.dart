@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_event.dart';
 import 'features/settings/presentation/bloc/settings_bloc.dart';
-import 'features/settings/presentation/bloc/settings_bloc.dart'
-    as settings_events;
 import 'features/diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import 'features/location/presentation/bloc/location_bloc.dart';
 import 'features/alerts/presentation/bloc/alerts_bloc.dart';
@@ -15,6 +13,7 @@ import 'features/connectivity/presentation/bloc/connectivity_bloc.dart';
 import 'shared/routes/app_router.dart';
 import 'core/di/injection_container.dart' as di;
 import 'core/theme/app_theme.dart';
+import 'l10n/app_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,7 +47,7 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
     _authBloc = di.sl<AuthBloc>();
     _authBloc.add(AuthCheckRequested());
     _settingsBloc = di.sl<SettingsBloc>()
-      ..add(settings_events.SettingsLoadRequested());
+      ..add(SettingsLoadRequested());
     _diagnosisBloc = di.sl<DiagnosisBloc>();
     _alertsBloc = di.sl<AlertsBloc>();
     _appRouter = AppRouter(authBloc: _authBloc);
@@ -78,22 +77,41 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
       ],
       child: BlocBuilder<SettingsBloc, SettingsState>(
         builder: (context, settingsState) {
-          final locale = const Locale(
-            'en',
-          ); // always use English for Flutter system
+          // Dynamically set locale based on SettingsBloc state
+          Locale locale;
+          if (settingsState is SettingsLoaded) {
+            // Use actual language from settings
+            if (settingsState.languageCode == 'ny') {
+              locale = const Locale('ny', 'MW');
+            } else {
+              locale = const Locale('en');
+            }
+          } else {
+            // Default to Chichewa while loading
+            locale = const Locale('ny', 'MW');
+          }
 
           return MaterialApp.router(
             title: 'MbewuSmart',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             locale: locale,
-            supportedLocales: const [Locale('en')],
+            supportedLocales: const [Locale('en'), Locale('ny', 'MW')],
             localeResolutionCallback: (deviceLocale, supportedLocales) {
-              if (deviceLocale != null && deviceLocale.languageCode == 'ny') {
-                return const Locale('en');
+              // Support both 'ny' and 'ny_MW'
+              for (final supported in supportedLocales) {
+                if (supported.languageCode == deviceLocale?.languageCode) {
+                  return supported;
+                }
               }
-              return deviceLocale;
+              return supportedLocales.first;
             },
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             routerConfig: _appRouter.router,
           );
         },

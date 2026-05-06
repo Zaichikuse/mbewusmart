@@ -48,6 +48,7 @@ class AppLocalizations {
       'greetingAfternoon': 'Good afternoon',
       'greetingEvening': 'Good evening',
       'home': 'Home',
+      'dashboard': 'Dashboard',
       'scan': 'Scan',
       'history': 'History',
       'settings': 'Settings',
@@ -172,6 +173,7 @@ class AppLocalizations {
       'greetingAfternoon': 'Mwaswera bwanji',
       'greetingEvening': 'Mwaswera bwanji',
       'home': 'Mphamvu',
+      'dashboard': 'Dashboard',
       'scan': 'Tani',
       'history': 'Mbiri',
       'settings': 'Zochitika',
@@ -310,6 +312,7 @@ class AppLocalizations {
   String get greetingAfternoon => _translate('greetingAfternoon');
   String get greetingEvening => _translate('greetingEvening');
   String get home => _translate('home');
+  String get dashboard => _translate('dashboard');
   String get scan => _translate('scan');
   String get history => _translate('history');
   String get settings => _translate('settings');

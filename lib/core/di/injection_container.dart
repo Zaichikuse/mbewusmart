@@ -147,7 +147,9 @@ Future<void> initDependencies() async {
   );
 
   // AI Assistant
-  sl.registerLazySingleton(() => AiAssistantService(cacheBox: cacheBox));
+  sl.registerLazySingleton(
+    () => AiAssistantService(cacheBox: cacheBox, malawiDataSource: sl()),
+  );
 }
 
 Box get userBox => Hive.box(AppConstants.userBox);

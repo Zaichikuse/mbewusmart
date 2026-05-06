@@ -83,15 +83,30 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   ) async {
     emit(SettingsLoading());
 
-    final languageResult = await settingsRepository.getLanguage();
-    final notificationsResult = await settingsRepository.getNotificationsEnabled();
-    final syncResult = await settingsRepository.getLastSyncTime();
+    try {
+      final languageResult = await settingsRepository.getLanguage();
+      final notificationsResult = await settingsRepository
+          .getNotificationsEnabled();
+      final syncResult = await settingsRepository.getLastSyncTime();
 
-    emit(SettingsLoaded(
-      languageCode: languageResult.fold((l) => 'ny', (r) => r),
-      notificationsEnabled: notificationsResult.fold((l) => true, (r) => r),
-      lastSyncTime: syncResult.fold((l) => null, (r) => r),
-    ));
+      final language = languageResult.fold((l) => 'ny', (r) => r);
+      final notifications = notificationsResult.fold((l) => true, (r) => r);
+      final syncTime = syncResult.fold((l) => null, (r) => r);
+
+      emit(
+        SettingsLoaded(
+          languageCode: language,
+          notificationsEnabled: notifications,
+          lastSyncTime: syncTime,
+        ),
+      );
+    } catch (e) {
+      emit(SettingsError('Failed to load settings: $e'));
+      // Emit a default loaded state even on error so the app can still function
+      emit(
+        const SettingsLoaded(languageCode: 'ny', notificationsEnabled: true),
+      );
+    }
   }
 
   Future<void> _onLanguageChanged(
@@ -100,8 +115,16 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   ) async {
     if (state is SettingsLoaded) {
       final currentState = state as SettingsLoaded;
-      await settingsRepository.setLanguage(event.languageCode);
-      emit(currentState.copyWith(languageCode: event.languageCode));
+      try {
+        // Save to repository first
+        await settingsRepository.setLanguage(event.languageCode);
+        // Then emit new state (this will trigger app rebuild via BlocBuilder in main.dart)
+        emit(currentState.copyWith(languageCode: event.languageCode));
+      } catch (e) {
+        emit(SettingsError('Failed to change language: $e'));
+        // Revert to previous state on error
+        emit(currentState);
+      }
     }
   }
 
@@ -111,8 +134,14 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   ) async {
     if (state is SettingsLoaded) {
       final currentState = state as SettingsLoaded;
-      await settingsRepository.setNotificationsEnabled(event.enabled);
-      emit(currentState.copyWith(notificationsEnabled: event.enabled));
+      try {
+        await settingsRepository.setNotificationsEnabled(event.enabled);
+        emit(currentState.copyWith(notificationsEnabled: event.enabled));
+      } catch (e) {
+        emit(SettingsError('Failed to toggle notifications: $e'));
+        // Revert to previous state on error
+        emit(currentState);
+      }
     }
   }
 }

@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
-import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/routes/app_routes.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
@@ -17,7 +15,6 @@ class WelcomePage extends StatefulWidget {
 }
 
 class _WelcomePageState extends State<WelcomePage> {
-  static const String _languageSetupCompletedKey = 'language_setup_completed';
   String _selectedLanguage = 'ny';
 
   @override
@@ -35,7 +32,7 @@ class _WelcomePageState extends State<WelcomePage> {
         });
       }
     } catch (e) {
-      // Ignore - use default language
+      debugPrint('Error loading current language: $e');
     }
   }
 
@@ -46,22 +43,25 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 
   void _continueToLogin() {
+    // Update SettingsBloc with selected language
+    // This will trigger the BlocBuilder in main.dart to rebuild with new locale
     try {
-      context.read<SettingsBloc>().add(SettingsLanguageChanged(_selectedLanguage));
-      final settingsBox = Hive.box(AppConstants.settingsBox);
-      settingsBox.put(_languageSetupCompletedKey, true);
+      context.read<SettingsBloc>().add(
+        SettingsLanguageChanged(_selectedLanguage),
+      );
     } catch (e) {
-      // Ignore if bloc is not available
+      debugPrint('Error updating language: $e');
     }
-    
-    // Use GoRouter for navigation
+
+    // Navigate to login page
     try {
       context.go(AppRoutes.login);
     } catch (e) {
+      debugPrint('GoRouter navigation failed: $e');
       // Fallback to Navigator if GoRouter fails
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-      );
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginPage()));
     }
   }
 
@@ -103,10 +103,7 @@ class _WelcomePageState extends State<WelcomePage> {
                 isChichewa
                     ? 'Sankhani chilankhulo chanu'
                     : 'Select your preferred language',
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: AppTheme.textLight,
-                ),
+                style: const TextStyle(fontSize: 16, color: AppTheme.textLight),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 40),
@@ -143,10 +140,7 @@ class _WelcomePageState extends State<WelcomePage> {
                 isChichewa
                     ? 'Chitukuko cha Zipatso za Malawi'
                     : 'Malawi Crop Development',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.textMuted,
-                ),
+                style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
               ),
             ],
           ),
@@ -168,7 +162,7 @@ class _WelcomePageState extends State<WelcomePage> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isSelected 
+          color: isSelected
               ? AppTheme.primaryGreen.withValues(alpha: 0.1)
               : Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -179,10 +173,7 @@ class _WelcomePageState extends State<WelcomePage> {
         ),
         child: Row(
           children: [
-            Text(
-              flag,
-              style: const TextStyle(fontSize: 32),
-            ),
+            Text(flag, style: const TextStyle(fontSize: 32)),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -193,15 +184,14 @@ class _WelcomePageState extends State<WelcomePage> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
-                      color: isSelected ? AppTheme.primaryGreen : AppTheme.textDark,
+                      color: isSelected
+                          ? AppTheme.primaryGreen
+                          : AppTheme.textDark,
                     ),
                   ),
                   Text(
                     name,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textMuted,
-                    ),
+                    style: TextStyle(fontSize: 14, color: AppTheme.textMuted),
                   ),
                 ],
               ),
