@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../alerts/presentation/bloc/alerts_bloc.dart';
@@ -11,7 +12,10 @@ enum ManagerAlertsFilter { all, pendingOnly, reviewedOnly }
 class ManagerAlertsPage extends StatefulWidget {
   final ManagerAlertsFilter initialFilter;
 
-  const ManagerAlertsPage({super.key, this.initialFilter = ManagerAlertsFilter.all});
+  const ManagerAlertsPage({
+    super.key,
+    this.initialFilter = ManagerAlertsFilter.all,
+  });
 
   @override
   State<ManagerAlertsPage> createState() => _ManagerAlertsPageState();
@@ -38,8 +42,9 @@ class _ManagerAlertsPageState extends State<ManagerAlertsPage> {
   @override
   Widget build(BuildContext context) {
     final settingsState = context.watch<SettingsBloc>().state;
-    final isChichewa =
-        settingsState is SettingsLoaded ? settingsState.languageCode == 'ny' : true;
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
+        : true;
 
     return Scaffold(
       appBar: AppBar(
@@ -83,7 +88,7 @@ class _ManagerAlertsPageState extends State<ManagerAlertsPage> {
                     action: ElevatedButton(
                       onPressed: () =>
                           context.read<AlertsBloc>().add(AlertsLoadRequested()),
-                      child: Text(isChichewa ? 'Jarani' : 'Retry'),
+                      child: Text(isChichewa ? 'Yesaninso' : 'Retry'),
                     ),
                   );
                 }
@@ -109,17 +114,7 @@ class _ManagerAlertsPageState extends State<ManagerAlertsPage> {
                       itemCount: alerts.length,
                       itemBuilder: (context, index) {
                         final alert = alerts[index];
-                        return _AlertTile(
-                          alert: alert,
-                          isChichewa: isChichewa,
-                          onMarkReviewed: alert.isRead
-                              ? null
-                              : () => context
-                                  .read<AlertsBloc>()
-                                  .add(AlertMarkAsRead(alert.id)),
-                          onAddResponse: () =>
-                              _showResponseDialog(context, alert, isChichewa),
-                        );
+                        return _AlertTile(alert: alert, isChichewa: isChichewa);
                       },
                     ),
                   );
@@ -133,14 +128,21 @@ class _ManagerAlertsPageState extends State<ManagerAlertsPage> {
     );
   }
 
+  // Determine if an alert is resolved (officerResponse is the source of truth)
+  bool _isResolved(Alert alert) {
+    return alert.officerResponse != null &&
+        alert.officerResponse!.trim().isNotEmpty;
+  }
+
   List<Alert> _applyFilters(List<Alert> all) {
     final q = _searchController.text.trim().toLowerCase();
 
     return all.where((a) {
-      if (_filter == ManagerAlertsFilter.pendingOnly && a.officerResponse != null) {
+      final resolved = _isResolved(a);
+      if (_filter == ManagerAlertsFilter.pendingOnly && resolved) {
         return false;
       }
-      if (_filter == ManagerAlertsFilter.reviewedOnly && a.officerResponse == null) {
+      if (_filter == ManagerAlertsFilter.reviewedOnly && !resolved) {
         return false;
       }
       if (q.isEmpty) return true;
@@ -148,6 +150,7 @@ class _ManagerAlertsPageState extends State<ManagerAlertsPage> {
         a.farmerName,
         a.farmerPhone,
         a.location,
+        a.district,
         a.cropName,
         a.diagnosisName,
         a.note,
@@ -161,101 +164,72 @@ class _ManagerAlertsPageState extends State<ManagerAlertsPage> {
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isChichewa ? 'Sankhani Filter' : 'Filters',
-                style: AppTextStyles.headingSmall,
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isChichewa ? 'Sankhani Filter' : 'Filters',
+                    style: AppTextStyles.headingSmall,
+                  ),
+                  const SizedBox(height: 12),
+                  RadioListTile<ManagerAlertsFilter>(
+                    value: ManagerAlertsFilter.all,
+                    groupValue: _filter,
+                    onChanged: (v) {
+                      setState(() => _filter = v!);
+                      setSheetState(() {});
+                    },
+                    title: Text(isChichewa ? 'Zonse' : 'All'),
+                  ),
+                  RadioListTile<ManagerAlertsFilter>(
+                    value: ManagerAlertsFilter.pendingOnly,
+                    groupValue: _filter,
+                    onChanged: (v) {
+                      setState(() => _filter = v!);
+                      setSheetState(() {});
+                    },
+                    title: Text(isChichewa ? 'Zosabwerera' : 'Pending'),
+                  ),
+                  RadioListTile<ManagerAlertsFilter>(
+                    value: ManagerAlertsFilter.reviewedOnly,
+                    groupValue: _filter,
+                    onChanged: (v) {
+                      setState(() => _filter = v!);
+                      setSheetState(() {});
+                    },
+                    title: Text(isChichewa ? 'Zachapa' : 'Resolved'),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      child: Text(isChichewa ? 'Tsekani' : 'Done'),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              RadioListTile<ManagerAlertsFilter>(
-                value: ManagerAlertsFilter.all,
-                groupValue: _filter,
-                onChanged: (v) => setState(() => _filter = v!),
-                title: Text(isChichewa ? 'Zonse' : 'All'),
-              ),
-              RadioListTile<ManagerAlertsFilter>(
-                value: ManagerAlertsFilter.pendingOnly,
-                groupValue: _filter,
-                onChanged: (v) => setState(() => _filter = v!),
-                title: Text(isChichewa ? 'Zosabwerera' : 'Pending'),
-              ),
-              RadioListTile<ManagerAlertsFilter>(
-                value: ManagerAlertsFilter.reviewedOnly,
-                groupValue: _filter,
-                onChanged: (v) => setState(() => _filter = v!),
-                title: Text(isChichewa ? 'Zachapa' : 'Resolved'),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.of(sheetContext).pop(),
-                  child: Text(isChichewa ? 'Tsekani' : 'Done'),
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
-  }
-
-  Future<void> _showResponseDialog(
-    BuildContext context,
-    Alert alert,
-    bool isChichewa,
-  ) async {
-    final controller = TextEditingController(text: alert.officerResponse ?? '');
-    final result = await showDialog<String?>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(isChichewa ? 'Yankho la Manager' : 'Manager Response'),
-          content: TextField(
-            controller: controller,
-            minLines: 3,
-            maxLines: 6,
-            decoration: InputDecoration(
-              hintText: isChichewa ? 'Lembani yankho...' : 'Write a response...',
-              border: const OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(null),
-              child: Text(isChichewa ? 'Iai' : 'Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
-              child: Text(isChichewa ? 'Sunga' : 'Save'),
-            ),
-          ],
-        );
-      },
-    );
-    if (result != null && result.trim().isNotEmpty) {
-      context.read<AlertsBloc>().add(AlertResponseAdded(alert.id, result.trim()));
-    }
   }
 }
 
 class _AlertTile extends StatelessWidget {
   final Alert alert;
   final bool isChichewa;
-  final VoidCallback? onMarkReviewed;
-  final VoidCallback onAddResponse;
 
-  const _AlertTile({
-    required this.alert,
-    required this.isChichewa,
-    required this.onMarkReviewed,
-    required this.onAddResponse,
-  });
+  const _AlertTile({required this.alert, required this.isChichewa});
+
+  bool get _isResolved =>
+      alert.officerResponse != null && alert.officerResponse!.trim().isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -263,41 +237,119 @@ class _AlertTile extends StatelessWidget {
         ? AppTheme.diseaseRed
         : AppTheme.warningAmber;
 
-    final statusText = alert.officerResponse == null
-        ? (isChichewa ? 'Pending' : 'Pending')
-        : (isChichewa ? 'Resolved' : 'Resolved');
+    final statusColor = _isResolved
+        ? AppTheme.healthyGreen
+        : AppTheme.warningAmber;
+    final statusText = _isResolved
+        ? (isChichewa ? 'Yathandizidwa' : 'Resolved')
+        : (isChichewa ? 'Yodikira' : 'Pending');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: ListTile(
-          leading: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: severityColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(Icons.warning_amber, color: severityColor),
-          ),
-          title: Text(alert.farmerName),
-          subtitle: Text('${alert.cropName} • ${alert.diagnosisName}\n${alert.location}'),
-          isThreeLine: true,
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+      elevation: 2,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => _showDetail(context),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${(alert.confidence * 100).toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: severityColor,
-                ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: severityColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.warning_amber, color: severityColor),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          alert.farmerName,
+                          style: AppTextStyles.bodyMedium.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${alert.cropName} • ${alert.diagnosisName}',
+                          style: AppTextStyles.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '${(alert.confidence * 100).toStringAsFixed(0)}%',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: severityColor,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          statusText,
+                          style: TextStyle(
+                            color: statusColor,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(statusText, style: AppTextStyles.caption),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.location_on, size: 14, color: AppTheme.textMuted),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      alert.district.isNotEmpty
+                          ? alert.district
+                          : (alert.location.isNotEmpty
+                                ? alert.location
+                                : (isChichewa ? 'Sizidziwika' : 'Unknown')),
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppTheme.textMuted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (alert.note.trim().isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '"${alert.note}"',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    fontStyle: FontStyle.italic,
+                    color: AppTheme.textMuted,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ],
           ),
-          onTap: () => _showDetail(context),
         ),
       ),
     );
@@ -312,69 +364,359 @@ class _AlertTile extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            0,
-            16,
-            16 + MediaQuery.of(ctx).viewInsets.bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(alert.farmerName, style: AppTextStyles.headingSmall),
-              const SizedBox(height: 6),
-              Text('${alert.cropName} • ${alert.diagnosisName}'),
-              const SizedBox(height: 6),
-              Text(alert.location),
-              const SizedBox(height: 12),
-              Text(
-                isChichewa ? 'Note' : 'Note',
-                style: AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w700),
+        return DraggableScrollableSheet(
+          initialChildSize: 0.85,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (ctx, scrollController) {
+            return SingleChildScrollView(
+              controller: scrollController,
+              padding: EdgeInsets.fromLTRB(
+                20,
+                0,
+                20,
+                20 + MediaQuery.of(ctx).viewInsets.bottom,
               ),
-              const SizedBox(height: 6),
-              Text(alert.note.trim().isEmpty ? '-' : alert.note),
-              const SizedBox(height: 12),
-              if (alert.officerResponse != null) ...[
-                Text(
-                  isChichewa ? 'Yankho' : 'Response',
-                  style: AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                Text(alert.officerResponse!),
-                const SizedBox(height: 12),
-              ],
-              Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: onMarkReviewed,
+                  // Header
+                  Row(
+                    children: [
+                      Icon(Icons.warning_amber, color: AppTheme.diseaseRed),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isChichewa ? 'Alert ya Mlimi' : 'Farmer Alert',
+                          style: AppTextStyles.headingSmall,
+                        ),
+                      ),
+                      _buildStatusBadge(),
+                    ],
+                  ),
+                  const Divider(height: 24),
+
+                  // Farmer Info Section
+                  _buildSectionTitle(
+                    isChichewa ? 'Mlimi' : 'Farmer',
+                    Icons.person,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildDetailRow(
+                    Icons.person_outline,
+                    isChichewa ? 'Dzina' : 'Name',
+                    alert.farmerName,
+                  ),
+                  _buildDetailRow(
+                    Icons.phone,
+                    isChichewa ? 'Foni' : 'Phone',
+                    alert.farmerPhone,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Location Section
+                  _buildSectionTitle(
+                    isChichewa ? 'Malo' : 'Location',
+                    Icons.location_on,
+                  ),
+                  const SizedBox(height: 8),
+                  if (alert.district.isNotEmpty)
+                    _buildDetailRow(
+                      Icons.map,
+                      isChichewa ? 'Boma' : 'District',
+                      alert.district,
+                    ),
+                  if (alert.location.isNotEmpty)
+                    _buildDetailRow(
+                      Icons.place,
+                      isChichewa ? 'Malo Enieni' : 'Place',
+                      alert.location,
+                    ),
+                  if (alert.location.isEmpty && alert.district.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Text(
-                        alert.isRead
-                            ? (isChichewa ? 'Reviewed' : 'Reviewed')
-                            : (isChichewa ? 'Mark reviewed' : 'Mark reviewed'),
+                        isChichewa ? 'Sizidziwika' : 'Unknown',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppTheme.textMuted,
+                        ),
                       ),
                     ),
+
+                  const SizedBox(height: 16),
+
+                  // Diagnosis Section
+                  _buildSectionTitle(
+                    isChichewa ? 'Vuto' : 'Issue',
+                    Icons.bug_report,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        onAddResponse();
-                      },
-                      child: Text(isChichewa ? 'Yankho' : 'Respond'),
+                  const SizedBox(height: 8),
+                  _buildDetailRow(
+                    Icons.local_florist,
+                    isChichewa ? 'Mbewu' : 'Crop',
+                    alert.cropName,
+                  ),
+                  _buildDetailRow(
+                    Icons.coronavirus,
+                    isChichewa ? 'Matenda' : 'Disease',
+                    alert.diagnosisName,
+                  ),
+                  _buildDetailRow(
+                    Icons.percent,
+                    isChichewa ? 'Kutsimikiza' : 'Confidence',
+                    '${(alert.confidence * 100).toStringAsFixed(0)}%',
+                  ),
+                  _buildDetailRow(
+                    Icons.access_time,
+                    isChichewa ? 'Nthawi' : 'Time',
+                    _formatTime(alert.timestamp),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Farmer's Notes Section
+                  _buildSectionTitle(
+                    isChichewa ? 'Mawu a Mlimi' : "Farmer's Notes",
+                    Icons.notes,
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Text(
+                      alert.note.trim().isEmpty
+                          ? (isChichewa ? 'Palibe mawu' : 'No notes provided')
+                          : alert.note,
+                      style: AppTextStyles.bodyMedium,
                     ),
                   ),
+
+                  // Manager Response Section (if resolved)
+                  if (_isResolved) ...[
+                    const SizedBox(height: 16),
+                    _buildSectionTitle(
+                      isChichewa ? 'Yankho la Manager' : 'Manager Response',
+                      Icons.check_circle,
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.healthyGreen.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: AppTheme.healthyGreen.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Text(
+                        alert.officerResponse!,
+                        style: AppTextStyles.bodyMedium,
+                      ),
+                    ),
+                    if (alert.respondedAt != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '${isChichewa ? "Yathandizidwa" : "Resolved on"} ${_formatTime(alert.respondedAt!)}',
+                        style: AppTextStyles.caption.copyWith(
+                          color: AppTheme.textMuted,
+                        ),
+                      ),
+                    ],
+                  ],
+
+                  const SizedBox(height: 24),
+
+                  // Action Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _callFarmer(alert.farmerPhone),
+                          icon: const Icon(Icons.phone),
+                          label: Text(isChichewa ? 'Lowa Fono' : 'Call Farmer'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.primaryGreen,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  if (!_isResolved)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () =>
+                            _markAsResolved(context, ctx, isChichewa),
+                        icon: const Icon(Icons.check_circle),
+                        label: Text(
+                          isChichewa
+                              ? 'Tsimikizani Yathandizidwa'
+                              : 'Mark as Resolved',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.healthyGreen,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.healthyGreen.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.check_circle,
+                            color: AppTheme.healthyGreen,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            isChichewa
+                                ? 'Alert Yathandizidwa'
+                                : 'Alert Resolved',
+                            style: AppTextStyles.bodyMedium.copyWith(
+                              color: AppTheme.healthyGreen,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SizedBox(height: 12),
                 ],
               ),
-              const SizedBox(height: 8),
-            ],
-          ),
+            );
+          },
         );
       },
     );
+  }
+
+  Widget _buildStatusBadge() {
+    final statusColor = _isResolved
+        ? AppTheme.healthyGreen
+        : AppTheme.warningAmber;
+    final statusText = _isResolved
+        ? (isChichewa ? 'Yathandizidwa' : 'Resolved')
+        : (isChichewa ? 'Yodikira' : 'Pending');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: statusColor.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        statusText,
+        style: TextStyle(
+          color: statusColor,
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AppTheme.primaryGreen),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: AppTextStyles.bodyMedium.copyWith(
+            fontWeight: FontWeight.bold,
+            color: AppTheme.primaryGreen,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 14, color: AppTheme.textMuted),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 90,
+            child: Text(
+              '$label:',
+              style: AppTextStyles.bodySmall.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textMuted,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value, style: AppTextStyles.bodySmall)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _callFarmer(String phoneNumber) async {
+    if (phoneNumber.trim().isEmpty || phoneNumber == 'Unknown') return;
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    }
+  }
+
+  void _markAsResolved(
+    BuildContext context,
+    BuildContext sheetContext,
+    bool isChichewa,
+  ) {
+    final defaultResponse = isChichewa
+        ? 'Yathandizidwa ndi Manager.'
+        : 'Reviewed and resolved by Manager.';
+
+    // Use existing AlertResponseAdded event - it sets officerResponse
+    // which is what determines "resolved" status
+    context.read<AlertsBloc>().add(
+      AlertResponseAdded(alert.id, defaultResponse),
+    );
+
+    Navigator.of(sheetContext).pop();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isChichewa
+              ? 'Alert yatsimikizidwa kuti yathandizidwa'
+              : 'Alert marked as resolved',
+        ),
+        backgroundColor: AppTheme.healthyGreen,
+      ),
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }
 
@@ -405,19 +747,17 @@ class _CenteredMessage extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               title,
-              style: AppTextStyles.headingSmall.copyWith(color: AppTheme.textMuted),
+              style: AppTextStyles.headingSmall.copyWith(
+                color: AppTheme.textMuted,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
             Text(message, textAlign: TextAlign.center),
-            if (action != null) ...[
-              const SizedBox(height: 12),
-              action!,
-            ],
+            if (action != null) ...[const SizedBox(height: 12), action!],
           ],
         ),
       ),
     );
   }
 }
-

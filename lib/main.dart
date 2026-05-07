@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'core/localization/fallback_material_localizations_delegate.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_event.dart';
 import 'features/settings/presentation/bloc/settings_bloc.dart';
@@ -46,8 +47,7 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
     super.initState();
     _authBloc = di.sl<AuthBloc>();
     _authBloc.add(AuthCheckRequested());
-    _settingsBloc = di.sl<SettingsBloc>()
-      ..add(SettingsLoadRequested());
+    _settingsBloc = di.sl<SettingsBloc>()..add(SettingsLoadRequested());
     _diagnosisBloc = di.sl<DiagnosisBloc>();
     _alertsBloc = di.sl<AlertsBloc>();
     _appRouter = AppRouter(authBloc: _authBloc);
@@ -108,6 +108,8 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
             },
             localizationsDelegates: const [
               AppLocalizations.delegate,
+              FallbackMaterialLocalizationsDelegate(),
+              FallbackCupertinoLocalizationsDelegate(),
               GlobalMaterialLocalizations.delegate,
               GlobalWidgetsLocalizations.delegate,
               GlobalCupertinoLocalizations.delegate,

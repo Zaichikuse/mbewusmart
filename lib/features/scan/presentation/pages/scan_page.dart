@@ -48,7 +48,9 @@ class _ScanPageState extends State<ScanPage> {
         : true;
 
     return Scaffold(
-      appBar: AppBar(title: Text(isChichewa ? 'Pima Zizolongo' : 'Scan Crop')),
+      appBar: AppBar(
+        title: Text(isChichewa ? 'kupeza vuto la mbewu' : 'Scan Crop'),
+      ),
       body: BlocListener<DiagnosisBloc, DiagnosisState>(
         listener: (context, state) {
           if (state is DiagnosisSuccess) {
@@ -429,7 +431,7 @@ class _ScanPageState extends State<ScanPage> {
 
                     // Scientific Name
                     _buildDetailSection(
-                      isChichewa ? 'Dzina Lolimbikira' : 'Scientific Name',
+                      isChichewa ? 'Dzina la sayantifiki' : 'Scientific Name',
                       _resolveDetailText(result.scientificName, isChichewa),
                       isChichewa,
                       Icons.science,
@@ -461,67 +463,14 @@ class _ScanPageState extends State<ScanPage> {
 
                     // Prevention
                     _buildDetailSection(
-                      isChichewa ? 'Cholinga' : 'Prevention',
+                      isChichewa ? 'Kapeweredwe' : 'Prevention',
                       _resolveDetailText(result.prevention, isChichewa),
                       isChichewa,
                       Icons.shield,
                     ),
-
-                    // Agro-dealer Contact
+                  ] else ...[
+                    // LOW CONFIDENCE: Warning message only
                     const SizedBox(height: 20),
-                    if (nearestDealer != null)
-                      () {
-                        final dealer = nearestDealer!;
-                        return _buildContactCard(
-                          title: isChichewa ? 'Agro-Dealer' : 'Agro-Dealer',
-                          name: dealer.name,
-                          phone: dealer.phone,
-                          latitude: dealer.latitude,
-                          longitude: dealer.longitude,
-                          icon: Icons.store,
-                          color: AppTheme.primaryGreen,
-                          onCall: () => _makePhoneCall(dealer.phone),
-                          isChichewa: isChichewa,
-                        );
-                      }()
-                    else
-                      _buildMissingContactCard(
-                        title: isChichewa ? 'Agro-Dealer' : 'Agro-Dealer',
-                        icon: Icons.store,
-                        color: AppTheme.primaryGreen,
-                        isChichewa: isChichewa,
-                      ),
-                    const SizedBox(height: 12),
-                    _buildMessageActionButton(
-                      label: isChichewa
-                          ? 'Lowa Fono la Agro Dealer'
-                          : 'Contact Agro Dealer',
-                      icon: Icons.message,
-                      color: AppTheme.primaryGreen,
-                      onTap: () => _contactAgroDealer(
-                        context,
-                        nearestDealer,
-                        isChichewa,
-                      ),
-                    ),
-
-                    // Report to Manager Button
-                    const SizedBox(height: 12),
-                    _buildMessageActionButton(
-                      label: isChichewa
-                          ? 'Report kwa Manager'
-                          : 'Report to Manager',
-                      icon: Icons.report_problem,
-                      color: AppTheme.warningAmber,
-                      onTap: () =>
-                          _reportToManager(context, result, isChichewa),
-                    ),
-                  ]
-                  // LOW CONFIDENCE: Show extension officer
-                  else ...[
-                    const SizedBox(height: 20),
-
-                    // Warning message
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
@@ -539,86 +488,200 @@ class _ScanPageState extends State<ScanPage> {
                           Expanded(
                             child: Text(
                               isChichewa
-                                  ? 'Zotsatira zikumveka bwino. Chonde funsani agro-dealer, Afesa Officer, kapena funsani AI kuti mupeze chithandizo.'
-                                  : 'Results are uncertain. Consider contacting a nearby agro-dealer, an Extension Officer, or ask the AI assistant for next steps.',
+                                  ? 'Zotsatira sizikutsimikiza bwino. Funsani Afesa Officer kapena Agro Dealer kuti mupeze chithandizo.'
+                                  : 'Results are uncertain. Contact an Extension Officer or Agro Dealer for proper assistance.',
                               style: AppTextStyles.bodyMedium,
                             ),
                           ),
                         ],
                       ),
                     ),
+                  ],
 
-                    const SizedBox(height: 20),
+                  // ============================================
+                  // ALWAYS SHOW: Help section (both confidence levels)
+                  // ============================================
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryGreen.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.support_agent,
+                          color: AppTheme.primaryGreen,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isChichewa ? 'Pezani Thandizo' : 'Get Help',
+                          style: AppTextStyles.bodyMedium.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
-                    // Extension Officer Contact
-                    if (nearestOfficer != null)
-                      () {
-                        final officer = nearestOfficer!;
-                        return _buildContactCard(
-                          title: isChichewa
-                              ? 'Afesa Officer'
-                              : 'Extension Officer',
-                          name: officer.name,
-                          phone: officer.phone,
-                          latitude: officer.latitude,
-                          longitude: officer.longitude,
-                          icon: Icons.person,
-                          color: AppTheme.accentOrange,
-                          onCall: () => _makePhoneCall(officer.phone),
-                          isChichewa: isChichewa,
-                        );
-                      }()
-                    else
-                      _buildMissingContactCard(
+                  const SizedBox(height: 12),
+
+                  // Extension Officer Card (always shown)
+                  if (nearestOfficer != null)
+                    () {
+                      final officer = nearestOfficer!;
+                      return _buildContactCard(
                         title: isChichewa
-                            ? 'Afesa Officer'
-                            : 'Extension Officer',
+                            ? 'Afesa Officer (Thandizo Lapafupi)'
+                            : 'Extension Officer (Nearby Help)',
+                        name: officer.name,
+                        phone: officer.phone,
+                        latitude: officer.latitude,
+                        longitude: officer.longitude,
                         icon: Icons.person,
                         color: AppTheme.accentOrange,
+                        onCall: () => _makePhoneCall(officer.phone),
                         isChichewa: isChichewa,
+                      );
+                    }()
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accentOrange.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.accentOrange.withValues(alpha: 0.4),
+                        ),
                       ),
-
-                    // Contact Extension Officer via Message
-                    const SizedBox(height: 12),
-                    _buildMessageActionButton(
-                      label: isChichewa
-                          ? 'Lowa Fono la Afesa Officer'
-                          : 'Contact Extension Officer',
-                      icon: Icons.message,
-                      color: AppTheme.accentOrange,
-                      onTap: () => _contactExtensionOfficer(
-                        context,
-                        nearestOfficer,
-                        isChichewa,
+                      child: Row(
+                        children: [
+                          Icon(Icons.person, color: AppTheme.accentOrange),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              isChichewa
+                                  ? 'Tikupezani Afesa Officer wapafupi...'
+                                  : 'Locating nearby Extension Officer...',
+                              style: AppTextStyles.bodyMedium.copyWith(
+                                color: AppTheme.accentOrange,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
 
-                    const SizedBox(height: 20),
+                  const SizedBox(height: 12),
 
-                    // Send Alert Button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          _sendAlert(
-                            context,
-                            result,
-                            locationText,
-                            authState,
-                            isChichewa,
-                          );
-                        },
-                        icon: const Icon(Icons.send),
-                        label: Text(
-                          isChichewa ? 'TumizanaAlert' : 'Send Alert',
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.accentOrange,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                  // Contact Extension Officer button (always shown)
+                  _buildMessageActionButton(
+                    label: isChichewa
+                        ? 'Lankhulani ndi Afesa Officer'
+                        : 'Contact Extension Officer',
+                    icon: Icons.message,
+                    color: AppTheme.accentOrange,
+                    onTap: () => _contactExtensionOfficer(
+                      context,
+                      nearestOfficer,
+                      isChichewa,
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Agro Dealer Card (always shown)
+                  if (nearestDealer != null)
+                    () {
+                      final dealer = nearestDealer!;
+                      return _buildContactCard(
+                        title: isChichewa ? 'Agro-Dealer' : 'Agro-Dealer',
+                        name: dealer.name,
+                        phone: dealer.phone,
+                        latitude: dealer.latitude,
+                        longitude: dealer.longitude,
+                        icon: Icons.store,
+                        color: AppTheme.primaryGreen,
+                        onCall: () => _makePhoneCall(dealer.phone),
+                        isChichewa: isChichewa,
+                      );
+                    }()
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryGreen.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.primaryGreen.withValues(alpha: 0.4),
                         ),
                       ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.store, color: AppTheme.primaryGreen),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              isChichewa
+                                  ? 'Tikupezani Agro Dealer wapafupi...'
+                                  : 'Locating nearby Agro Dealer...',
+                              style: AppTextStyles.bodyMedium.copyWith(
+                                color: AppTheme.primaryGreen,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
+
+                  const SizedBox(height: 12),
+
+                  // Contact Agro Dealer button (always shown)
+                  _buildMessageActionButton(
+                    label: isChichewa
+                        ? 'Lankhulani ndi Agro Dealer'
+                        : 'Contact Agro Dealer',
+                    icon: Icons.message,
+                    color: AppTheme.primaryGreen,
+                    onTap: () =>
+                        _contactAgroDealer(context, nearestDealer, isChichewa),
+                  ),
+
+                  // ============================================
+                  // ALWAYS SHOW: Send Alert button (replaces Report to Manager)
+                  // ============================================
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        _sendAlert(
+                          context,
+                          result,
+                          locationText,
+                          authState,
+                          isChichewa,
+                        );
+                      },
+                      icon: const Icon(Icons.send),
+                      label: Text(
+                        isChichewa
+                            ? 'Tumizani Alert kwa Manager'
+                            : 'Send Alert to Manager',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.warningAmber,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
 
                   const SizedBox(height: 20),
 
@@ -708,7 +771,7 @@ class _ScanPageState extends State<ScanPage> {
                             Navigator.pop(dialogContext);
                             context.read<DiagnosisBloc>().add(DiagnosisReset());
                           },
-                          child: Text(isChichewa ? 'Bwererani' : 'Try Again'),
+                          child: Text(isChichewa ? 'Yeselaninso' : 'Try Again'),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -776,7 +839,7 @@ class _ScanPageState extends State<ScanPage> {
               ),
               const SizedBox(width: 8),
               Text(
-                '$confidencePercent% ${isChichewa ? 'chikumbutso' : 'confidence'}',
+                '$confidencePercent% ${isChichewa ? 'Kutsimikiza' : 'confidence'}',
                 style: TextStyle(
                   color: color,
                   fontWeight: FontWeight.bold,
@@ -792,7 +855,7 @@ class _ScanPageState extends State<ScanPage> {
                 ),
                 child: Text(
                   isHighConfidence
-                      ? (isChichewa ? 'Yenjapola' : 'HIGH')
+                      ? (isChichewa ? 'Yokwela' : 'HIGH')
                       : (isChichewa ? 'Yotsika' : 'LOW'),
                   style: const TextStyle(
                     color: Colors.white,
@@ -865,9 +928,11 @@ class _ScanPageState extends State<ScanPage> {
             children: [
               Icon(icon, color: color),
               const SizedBox(width: 8),
-              Text(
-                title,
-                style: AppTextStyles.headingSmall.copyWith(color: color),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTextStyles.headingSmall.copyWith(color: color),
+                ),
               ),
             ],
           ),
@@ -904,36 +969,6 @@ class _ScanPageState extends State<ScanPage> {
                   ),
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMissingContactCard({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required bool isChichewa,
-  }) {
-    final message = isChichewa ? 'Palibe $title wapezeka' : 'No $title found';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              message,
-              style: AppTextStyles.bodyMedium.copyWith(color: color),
             ),
           ),
         ],
@@ -1066,7 +1101,9 @@ class _ScanPageState extends State<ScanPage> {
                 initialDiagnosis: diagnosis,
                 initialPrompt: initialPrompt,
                 floatingMode: true,
-                pageContext: isChichewa ? 'Zotsatira za scan' : 'Scan result',
+                pageContext: isChichewa
+                    ? 'Zotsatira za kufufuza'
+                    : 'Scan result',
                 onClose: () => Navigator.of(sheetContext).pop(),
                 initialNearestOfficer: nearestOfficer,
                 initialNearestDealer: nearestDealer,
@@ -1139,85 +1176,234 @@ class _ScanPageState extends State<ScanPage> {
         ? authState.user!.phoneNumber
         : 'Unknown';
 
-    final alert = Alert(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      farmerName: farmerName,
-      farmerPhone: farmerPhone,
-      location: location,
-      cropName: isChichewa
-          ? result.cropType.displayNameChichewa
-          : result.cropType.displayName,
-      diagnosisName: isChichewa
-          ? result.diagnosisNameChichewa
-          : result.diagnosisName,
-      confidence: result.confidence,
-      timestamp: DateTime.now(),
-      note: isChichewa
-          ? 'Zotsatira zikumveka bwino - zofunika kuwunikira'
-          : 'Results uncertain - requires professional review',
-    );
-
-    context.read<AlertsBloc>().add(AlertSent(alert));
-
-    // Also create a report and notify the nearest extension officer and manager
-    // if location information is available (fire-and-forget).
+    // Get district separately from location
     final locationState = context.read<LocationBloc>().state;
-    final ExtensionOfficer? notifyOfficer = locationState is LocationLoaded
-        ? locationState.nearestOfficer
-        : null;
-    // fire-and-forget report creation/notification
-    _createReportAndNotify(
-      result: result,
-      isChichewa: isChichewa,
-      nearestOfficer: notifyOfficer,
-    );
+    String district = '';
+    if (locationState is LocationLoaded) {
+      district = locationState.location.district ?? '';
+    }
 
-    // Show confirmation dialog
+    // Pre-fill suggested note based on confidence
+    final suggestedNote = result.confidence >= confidenceThreshold
+        ? (isChichewa
+              ? 'Pezani matenda ${result.diagnosisNameChichewa} pa ${result.cropType.displayNameChichewa}. Ndikufuna chithandizo.'
+              : 'Detected ${result.diagnosisName} on ${result.cropType.displayName}. Requesting assistance.')
+        : (isChichewa
+              ? 'Zotsatira sizikutsimikiza bwino - ndikufuna kuwunikira.'
+              : 'Results uncertain - requires professional review.');
+
+    final notesController = TextEditingController(text: suggestedNote);
+
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) {
         return AlertDialog(
           title: Row(
             children: [
-              Icon(Icons.check_circle, color: AppTheme.healthyGreen),
+              Icon(Icons.send, color: AppTheme.accentOrange),
               const SizedBox(width: 8),
-              Text(isChichewa ? 'Alert Yatumizidwa!' : 'Alert Sent!'),
+              Expanded(
+                child: Text(
+                  isChichewa ? 'Tumizani Alert' : 'Send Alert',
+                  style: AppTextStyles.headingSmall,
+                ),
+              ),
             ],
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isChichewa
-                    ? 'Zikomo kwambiri potiwuzani. Mudzathandizika mwatsiku 24. Tikugwira ntchito pa vuto lino.'
-                    : 'Thank you for notifying us. You will be assisted within 24 hours. We are working on the problem.',
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.access_time,
-                    size: 16,
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isChichewa
+                      ? 'Tsimikizirani zomwe Manager adzalandire:'
+                      : 'Confirm what the Manager will receive:',
+                  style: AppTextStyles.bodySmall.copyWith(
                     color: AppTheme.textMuted,
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _formatDate(DateTime.now()),
-                    style: AppTextStyles.caption,
+                ),
+                const SizedBox(height: 12),
+
+                // Read-only preview
+                _buildAlertPreviewRow(
+                  Icons.person,
+                  isChichewa ? 'Dzina' : 'Name',
+                  farmerName,
+                ),
+                _buildAlertPreviewRow(
+                  Icons.phone,
+                  isChichewa ? 'Foni' : 'Phone',
+                  farmerPhone,
+                ),
+                _buildAlertPreviewRow(
+                  Icons.location_on,
+                  isChichewa ? 'Malo' : 'Location',
+                  location.isNotEmpty
+                      ? location
+                      : (isChichewa ? 'Sizidziwika' : 'Unknown'),
+                ),
+                if (district.isNotEmpty)
+                  _buildAlertPreviewRow(
+                    Icons.map,
+                    isChichewa ? 'Boma' : 'District',
+                    district,
                   ),
-                ],
-              ),
-            ],
+                _buildAlertPreviewRow(
+                  Icons.local_florist,
+                  isChichewa ? 'Mbewu' : 'Crop',
+                  isChichewa
+                      ? result.cropType.displayNameChichewa
+                      : result.cropType.displayName,
+                ),
+                _buildAlertPreviewRow(
+                  Icons.bug_report,
+                  isChichewa ? 'Matenda' : 'Diagnosis',
+                  isChichewa
+                      ? result.diagnosisNameChichewa
+                      : result.diagnosisName,
+                ),
+
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+
+                // Editable notes field
+                Text(
+                  isChichewa
+                      ? 'Mawu Anu (mukhoza kusintha):'
+                      : 'Your Notes (editable):',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: notesController,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    hintText: isChichewa
+                        ? 'Lembani zambiri za vutoli...'
+                        : 'Add more details about the issue...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
-            ElevatedButton(
+            TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: Text(isChichewa ? 'Uli' : 'OK'),
+              child: Text(isChichewa ? 'Ayi' : 'Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                final finalNote = notesController.text.trim().isEmpty
+                    ? suggestedNote
+                    : notesController.text.trim();
+
+                final alert = Alert(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  farmerName: farmerName,
+                  farmerPhone: farmerPhone,
+                  location: location,
+                  district: district,
+                  cropName: isChichewa
+                      ? result.cropType.displayNameChichewa
+                      : result.cropType.displayName,
+                  diagnosisName: isChichewa
+                      ? result.diagnosisNameChichewa
+                      : result.diagnosisName,
+                  confidence: result.confidence,
+                  timestamp: DateTime.now(),
+                  note: finalNote,
+                  status: 'pending',
+                );
+
+                context.read<AlertsBloc>().add(AlertSent(alert));
+
+                // Also notify extension officer (existing flow)
+                final locationState = context.read<LocationBloc>().state;
+                final ExtensionOfficer? notifyOfficer =
+                    locationState is LocationLoaded
+                    ? locationState.nearestOfficer
+                    : null;
+                _createReportAndNotify(
+                  result: result,
+                  isChichewa: isChichewa,
+                  nearestOfficer: notifyOfficer,
+                );
+
+                Navigator.pop(dialogContext);
+
+                // Show confirmation
+                showDialog(
+                  context: context,
+                  builder: (confirmContext) {
+                    return AlertDialog(
+                      title: Row(
+                        children: [
+                          Icon(
+                            Icons.check_circle,
+                            color: AppTheme.healthyGreen,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(isChichewa ? 'Yatumizidwa!' : 'Alert Sent!'),
+                        ],
+                      ),
+                      content: Text(
+                        isChichewa
+                            ? 'Alert yanu yatumizidwa kwa Agriculture Manager. Mudzapatsidwa thandizo posachedwa.'
+                            : 'Your alert has been sent to the Agriculture Manager. You will receive assistance soon.',
+                      ),
+                      actions: [
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(confirmContext),
+                          child: Text(isChichewa ? 'Uli' : 'OK'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+              icon: const Icon(Icons.send),
+              label: Text(isChichewa ? 'Tumiza' : 'Send'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accentOrange,
+                foregroundColor: Colors.white,
+              ),
             ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildAlertPreviewRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: AppTheme.primaryGreen),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label:',
+              style: AppTextStyles.bodySmall.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textMuted,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value, style: AppTextStyles.bodySmall)),
+        ],
+      ),
     );
   }
 
@@ -1233,7 +1419,7 @@ class _ScanPageState extends State<ScanPage> {
         SnackBar(
           content: Text(
             isChichewa
-                ? 'Lowani kaye kuti muthe kutumiza report.'
+                ? 'Lowani kaye kuti muthe kutumiza lipoti.'
                 : 'Please log in to send a report.',
           ),
         ),
@@ -1259,7 +1445,7 @@ class _ScanPageState extends State<ScanPage> {
           SnackBar(
             content: Text(
               isChichewa
-                  ? 'Report yatumizidwa kwa Manager ndi Afesa Officer.'
+                  ? 'lipoti latumizidwa kwa Manager ndi Afesa Officer.'
                   : 'Report sent to the Manager and Extension Officer.',
             ),
             backgroundColor: AppTheme.healthyGreen,
@@ -1286,18 +1472,6 @@ class _ScanPageState extends State<ScanPage> {
     ExtensionOfficer? officer,
     bool isChichewa,
   ) {
-    final diagnosisState = context.read<DiagnosisBloc>().state;
-    final diagnosis = diagnosisState is DiagnosisSuccess
-        ? diagnosisState.result
-        : null;
-    if (diagnosis != null) {
-      _createReportAndNotify(
-        result: diagnosis,
-        isChichewa: isChichewa,
-        nearestOfficer: officer,
-      );
-    }
-
     if (officer == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1474,93 +1648,6 @@ class _ScanPageState extends State<ScanPage> {
               ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  void _reportToManager(
-    BuildContext context,
-    DiagnosisResult result,
-    bool isChichewa,
-  ) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.report_problem, color: AppTheme.warningAmber),
-              const SizedBox(width: 8),
-              Text(isChichewa ? 'Report kwa Manager' : 'Report to Manager'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isChichewa
-                    ? 'Kodi mukufuna kutumiza report ya matenda kwa Agriculture Manager?'
-                    : 'Do you want to send a disease report to the Agriculture Manager?',
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isChichewa ? 'Chinthu:' : 'Issue:',
-                      style: AppTextStyles.caption,
-                    ),
-                    Text(
-                      isChichewa
-                          ? result.diagnosisNameChichewa
-                          : result.diagnosisName,
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(isChichewa ? 'Ayi' : 'Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(dialogContext);
-                await _createReportAndNotify(
-                  result: result,
-                  isChichewa: isChichewa,
-                  nearestOfficer:
-                      (context.read<LocationBloc>().state is LocationLoaded)
-                      ? (context.read<LocationBloc>().state as LocationLoaded)
-                            .nearestOfficer
-                      : null,
-                );
-                _startMessageConversation(
-                  context,
-                  result,
-                  'agricultureManager',
-                  isChichewa,
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.warningAmber,
-              ),
-              child: Text(isChichewa ? 'Tumiza' : 'Send'),
-            ),
-          ],
         );
       },
     );

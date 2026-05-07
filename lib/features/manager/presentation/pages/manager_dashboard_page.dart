@@ -171,10 +171,16 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             }
             if (alertsState is AlertsLoaded) {
               totalAlerts = alertsState.alerts.length;
-              pendingAlerts = alertsState.unreadCount;
+              // FIXED: Use officerResponse to determine resolved/pending
+              // (matches the logic in ManagerAlertsPage)
               resolvedAlerts = alertsState.alerts
-                  .where((a) => a.officerResponse != null)
+                  .where(
+                    (a) =>
+                        a.officerResponse != null &&
+                        a.officerResponse!.trim().isNotEmpty,
+                  )
                   .length;
+              pendingAlerts = totalAlerts - resolvedAlerts;
             }
 
             return Column(
@@ -191,7 +197,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const ManagerReportsPage(
-                                initialFilter: ManagerReportsFilter.allDiagnoses,
+                                initialFilter:
+                                    ManagerReportsFilter.allDiagnoses,
                               ),
                             ),
                           );
@@ -222,15 +229,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                     Expanded(
                       child: _buildStatCard(
                         icon: Icons.pending_actions,
-                        label: isChichewa ? 'Zosabwerera' : 'Pending',
+                        label: isChichewa ? 'Zodikira' : 'Pending',
                         value: pendingAlerts.toString(),
                         color: AppTheme.diseaseRed,
                         onTap: () {
+                          // FIXED: Now opens ManagerAlertsPage filtered to pending
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => const ManagerReportsPage(
-                                initialFilter:
-                                    ManagerReportsFilter.pendingOnly,
+                              builder: (_) => const ManagerAlertsPage(
+                                initialFilter: ManagerAlertsFilter.pendingOnly,
                               ),
                             ),
                           );
@@ -241,15 +248,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                     Expanded(
                       child: _buildStatCard(
                         icon: Icons.check_circle,
-                        label: isChichewa ? 'Zachapa' : 'Resolved',
+                        label: isChichewa ? 'Yathandizidwa' : 'Resolved',
                         value: resolvedAlerts.toString(),
                         color: AppTheme.healthyGreen,
                         onTap: () {
+                          // FIXED: Now opens ManagerAlertsPage filtered to resolved
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => const ManagerReportsPage(
-                                initialFilter:
-                                    ManagerReportsFilter.reviewedOnly,
+                              builder: (_) => const ManagerAlertsPage(
+                                initialFilter: ManagerAlertsFilter.reviewedOnly,
                               ),
                             ),
                           );

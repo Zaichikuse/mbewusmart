@@ -7,6 +7,8 @@ import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../reports/data/services/report_service.dart';
 import '../../../reports/domain/entities/diagnosis_report.dart';
 
+// Kept for backward compatibility — dashboard still passes this enum,
+// but we no longer filter by status (diagnoses are historical records).
 enum ManagerReportsFilter { allDiagnoses, pendingOnly, reviewedOnly }
 
 class ManagerReportsPage extends StatefulWidget {
@@ -26,14 +28,11 @@ class ManagerReportsPage extends StatefulWidget {
 class _ManagerReportsPageState extends State<ManagerReportsPage> {
   late final ReportService _reportService = di.sl<ReportService>();
   final _searchController = TextEditingController();
-
-  late ManagerReportsFilter _filter;
   String? _district;
 
   @override
   void initState() {
     super.initState();
-    _filter = widget.initialFilter;
     _district = widget.initialDistrict;
     _searchController.addListener(() => setState(() {}));
   }
@@ -47,10 +46,11 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
   @override
   Widget build(BuildContext context) {
     final settingsState = context.watch<SettingsBloc>().state;
-    final isChichewa =
-        settingsState is SettingsLoaded ? settingsState.languageCode == 'ny' : true;
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
+        : true;
 
-    final title = isChichewa ? 'Ma Diagnosis ndi Ma Report' : 'Diagnoses & Reports';
+    final title = isChichewa ? 'Ma Diagnosis' : 'All Diagnoses';
 
     return Scaffold(
       appBar: AppBar(
@@ -58,7 +58,8 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_alt_outlined),
-            onPressed: () => _showFilterSheet(context, isChichewa),
+            tooltip: isChichewa ? 'Sankhani District' : 'Filter by District',
+            onPressed: () => _showDistrictSheet(context, isChichewa),
           ),
         ],
       ),
@@ -70,7 +71,9 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
               controller: _searchController,
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search),
-                hintText: isChichewa ? 'Sakani...' : 'Search...',
+                hintText: isChichewa
+                    ? 'Sakani mlimi, mbewu, kapena matenda...'
+                    : 'Search farmer, crop, or disease...',
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(
@@ -80,25 +83,16 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
               ),
             ),
           ),
-          if (_district != null || _filter != ManagerReportsFilter.allDiagnoses)
+          if (_district != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (_district != null)
-                    Chip(
-                      label: Text(_district!),
-                      onDeleted: () => setState(() => _district = null),
-                    ),
-                  if (_filter != ManagerReportsFilter.allDiagnoses)
-                    Chip(
-                      label: Text(_filterLabel(isChichewa)),
-                      onDeleted: () =>
-                          setState(() => _filter = ManagerReportsFilter.allDiagnoses),
-                    ),
-                ],
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Chip(
+                  avatar: const Icon(Icons.location_on, size: 16),
+                  label: Text(_district!),
+                  onDeleted: () => setState(() => _district = null),
+                ),
               ),
             ),
           const SizedBox(height: 8),
@@ -123,16 +117,15 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
 
                 if (filtered.isEmpty) {
                   return _EmptyState(
-                    title: isChichewa ? 'Palibe zotsatira' : 'No results',
+                    title: isChichewa ? 'Palibe zotsatira' : 'No diagnoses',
                     message: isChichewa
-                        ? 'Yesani kusintha filter kapena search.'
-                        : 'Try adjusting filters or search.',
+                        ? 'Yesani kusintha search kapena district.'
+                        : 'Try adjusting search or district filter.',
                   );
                 }
 
                 return RefreshIndicator(
                   onRefresh: () async {
-                    // Firestore stream auto-updates; force rebuild for UX.
                     setState(() {});
                   },
                   child: ListView.builder(
@@ -140,10 +133,11 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
                     itemCount: filtered.length,
                     itemBuilder: (context, index) {
                       final report = filtered[index];
-                      return _ReportTile(
+                      return _DiagnosisTile(
                         report: report,
                         isChichewa: isChichewa,
-                        onOpen: () => _showReportDetail(context, report, isChichewa),
+                        onOpen: () =>
+                            _showDiagnosisDetail(context, report, isChichewa),
                       );
                     },
                   ),
@@ -160,17 +154,13 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
     final q = _searchController.text.trim().toLowerCase();
 
     return all.where((r) {
+      // District filter (optional)
       if (_district != null && (r.district ?? '').trim() != _district) {
         return false;
       }
-      if (_filter == ManagerReportsFilter.pendingOnly && r.status == 'reviewed') {
-        return false;
-      }
-      if (_filter == ManagerReportsFilter.reviewedOnly && r.status != 'reviewed') {
-        return false;
-      }
-      if (q.isEmpty) return true;
 
+      // Search filter
+      if (q.isEmpty) return true;
       final haystack = [
         r.farmerName,
         r.farmerPhone,
@@ -178,81 +168,70 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
         r.diagnosisName,
         r.district ?? '',
         r.placeName ?? '',
-        r.status,
       ].join(' ').toLowerCase();
       return haystack.contains(q);
     }).toList();
   }
 
-  String _filterLabel(bool isChichewa) {
-    switch (_filter) {
-      case ManagerReportsFilter.allDiagnoses:
-        return isChichewa ? 'Zonse' : 'All';
-      case ManagerReportsFilter.pendingOnly:
-        return isChichewa ? 'Zosabwerera' : 'Pending';
-      case ManagerReportsFilter.reviewedOnly:
-        return isChichewa ? 'Zachapa' : 'Reviewed';
-    }
-  }
-
-  void _showFilterSheet(BuildContext context, bool isChichewa) {
+  void _showDistrictSheet(BuildContext context, bool isChichewa) {
+    final controller = TextEditingController(text: _district ?? '');
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (sheetContext) {
         return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            0,
+            16,
+            16 + MediaQuery.of(sheetContext).viewInsets.bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isChichewa ? 'Sankhani Filter' : 'Filters',
+                isChichewa ? 'Sankhani District' : 'Filter by District',
                 style: AppTextStyles.headingSmall,
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<ManagerReportsFilter>(
-                value: _filter,
+              TextFormField(
+                controller: controller,
                 decoration: InputDecoration(
-                  labelText: isChichewa ? 'Status' : 'Status',
+                  labelText: isChichewa ? 'Boma' : 'District',
+                  hintText: isChichewa ? 'mwa: Blantyre' : 'e.g. Blantyre',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                items: const [
-                  DropdownMenuItem(
-                    value: ManagerReportsFilter.allDiagnoses,
-                    child: Text('All'),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        setState(() => _district = null);
+                        Navigator.of(sheetContext).pop();
+                      },
+                      child: Text(isChichewa ? 'Chotsani' : 'Clear'),
+                    ),
                   ),
-                  DropdownMenuItem(
-                    value: ManagerReportsFilter.pendingOnly,
-                    child: Text('Pending'),
-                  ),
-                  DropdownMenuItem(
-                    value: ManagerReportsFilter.reviewedOnly,
-                    child: Text('Reviewed'),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final value = controller.text.trim();
+                        setState(
+                          () => _district = value.isEmpty ? null : value,
+                        );
+                        Navigator.of(sheetContext).pop();
+                      },
+                      child: Text(isChichewa ? 'Sankhani' : 'Apply'),
+                    ),
                   ),
                 ],
-                onChanged: (v) => setState(() => _filter = v!),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                initialValue: _district ?? '',
-                decoration: InputDecoration(
-                  labelText: isChichewa ? 'District (optional)' : 'District (optional)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onChanged: (v) => _district = v.trim().isEmpty ? null : v.trim(),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.of(sheetContext).pop(),
-                  child: Text(isChichewa ? 'Tsekani' : 'Done'),
-                ),
               ),
             ],
           ),
@@ -261,7 +240,7 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
     );
   }
 
-  void _showReportDetail(
+  void _showDiagnosisDetail(
     BuildContext context,
     DiagnosisReport report,
     bool isChichewa,
@@ -275,10 +254,10 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
       builder: (ctx) {
         return Padding(
           padding: EdgeInsets.fromLTRB(
-            16,
-            16,
-            16,
-            16 + MediaQuery.of(ctx).viewInsets.bottom,
+            20,
+            20,
+            20,
+            20 + MediaQuery.of(ctx).viewInsets.bottom,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -286,39 +265,73 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
             children: [
               Row(
                 children: [
+                  Icon(Icons.eco, color: AppTheme.primaryGreen),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      report.farmerName,
+                      isChichewa ? 'Diagnosis ya Mlimi' : 'Farmer Diagnosis',
                       style: AppTextStyles.headingSmall,
                     ),
                   ),
-                  Chip(
-                    label: Text(report.status),
-                    backgroundColor: report.status == 'reviewed'
-                        ? AppTheme.healthyGreen.withValues(alpha: 0.12)
-                        : AppTheme.warningAmber.withValues(alpha: 0.12),
-                  ),
                 ],
               ),
+              const Divider(height: 24),
+
+              // Farmer
+              _sectionTitle(isChichewa ? 'Mlimi' : 'Farmer', Icons.person),
               const SizedBox(height: 8),
-              Text('${report.cropType} • ${report.diagnosisName}'),
-              const SizedBox(height: 8),
-              Text(
-                '${(report.confidence * 100).toStringAsFixed(0)}% ${isChichewa ? 'chikumbutso' : 'confidence'}',
-                style: AppTextStyles.bodySmall,
-              ),
-              const SizedBox(height: 12),
-              _kv(isChichewa ? 'District' : 'District', report.district ?? '-'),
-              _kv(isChichewa ? 'Place' : 'Place', report.placeName ?? '-'),
-              _kv(isChichewa ? 'Phone' : 'Phone', report.farmerPhone),
-              const SizedBox(height: 12),
-              Text(
-                isChichewa ? 'Notes' : 'Notes',
-                style: AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 6),
-              Text((report.notes ?? '').trim().isEmpty ? '-' : report.notes!),
+              _kv(isChichewa ? 'Dzina' : 'Name', report.farmerName),
+              _kv(isChichewa ? 'Foni' : 'Phone', report.farmerPhone),
+
               const SizedBox(height: 16),
+
+              // Location
+              _sectionTitle(
+                isChichewa ? 'Malo' : 'Location',
+                Icons.location_on,
+              ),
+              const SizedBox(height: 8),
+              _kv(
+                isChichewa ? 'Boma' : 'District',
+                (report.district ?? '').trim().isEmpty ? '-' : report.district!,
+              ),
+              _kv(
+                isChichewa ? 'Malo Enieni' : 'Place',
+                (report.placeName ?? '').trim().isEmpty
+                    ? '-'
+                    : report.placeName!,
+              ),
+
+              const SizedBox(height: 16),
+
+              // Diagnosis
+              _sectionTitle(isChichewa ? 'Vuto' : 'Issue', Icons.bug_report),
+              const SizedBox(height: 8),
+              _kv(isChichewa ? 'Mbewu' : 'Crop', report.cropType),
+              _kv(isChichewa ? 'Matenda' : 'Disease', report.diagnosisName),
+              _kv(
+                isChichewa ? 'Kutsimikiza' : 'Confidence',
+                '${(report.confidence * 100).toStringAsFixed(0)}%',
+              ),
+
+              if ((report.notes ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _sectionTitle(isChichewa ? 'Mawu' : 'Notes', Icons.notes),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Text(report.notes!),
+                ),
+              ],
+
+              const SizedBox(height: 24),
+
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -333,26 +346,51 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
     );
   }
 
-  Widget _kv(String k, String v) {
+  Widget _sectionTitle(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AppTheme.primaryGreen),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: AppTextStyles.bodyMedium.copyWith(
+            fontWeight: FontWeight.bold,
+            color: AppTheme.primaryGreen,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _kv(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 90, child: Text(k, style: AppTextStyles.bodySmall)),
-          const SizedBox(width: 8),
-          Expanded(child: Text(v)),
+          SizedBox(
+            width: 90,
+            child: Text(
+              '$label:',
+              style: AppTextStyles.bodySmall.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textMuted,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value, style: AppTextStyles.bodySmall)),
         ],
       ),
     );
   }
 }
 
-class _ReportTile extends StatelessWidget {
+class _DiagnosisTile extends StatelessWidget {
   final DiagnosisReport report;
   final bool isChichewa;
   final VoidCallback onOpen;
 
-  const _ReportTile({
+  const _DiagnosisTile({
     required this.report,
     required this.isChichewa,
     required this.onOpen,
@@ -360,42 +398,51 @@ class _ReportTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = report.status == 'reviewed'
+    final highConfidence = report.confidence >= 0.7;
+    final iconColor = highConfidence
         ? AppTheme.healthyGreen
         : AppTheme.warningAmber;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
+      elevation: 2,
       child: ListTile(
         onTap: onOpen,
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: statusColor.withValues(alpha: 0.12),
+            color: iconColor.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(Icons.eco, color: statusColor),
+          child: Icon(Icons.eco, color: iconColor),
         ),
-        title: Text(report.farmerName),
-        subtitle: Text(
-          '${report.cropType} • ${report.diagnosisName}'
-          '${(report.district ?? '').trim().isEmpty ? '' : ' • ${report.district}'}',
+        title: Text(
+          report.farmerName,
+          style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.w600),
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '${(report.confidence * 100).toStringAsFixed(0)}%',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: report.confidence >= 0.7
-                    ? AppTheme.healthyGreen
-                    : AppTheme.diseaseRed,
+            const SizedBox(height: 2),
+            Text('${report.cropType} • ${report.diagnosisName}'),
+            if ((report.district ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  Icon(Icons.location_on, size: 12, color: AppTheme.textMuted),
+                  const SizedBox(width: 2),
+                  Text(report.district!, style: AppTextStyles.caption),
+                ],
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(report.status, style: AppTextStyles.caption),
+            ],
           ],
+        ),
+        trailing: Text(
+          '${(report.confidence * 100).toStringAsFixed(0)}%',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: highConfidence ? AppTheme.healthyGreen : AppTheme.diseaseRed,
+          ),
         ),
       ),
     );
@@ -420,7 +467,9 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               title,
-              style: AppTextStyles.headingSmall.copyWith(color: AppTheme.textMuted),
+              style: AppTextStyles.headingSmall.copyWith(
+                color: AppTheme.textMuted,
+              ),
             ),
             const SizedBox(height: 6),
             Text(message, textAlign: TextAlign.center),
@@ -456,4 +505,3 @@ class _ErrorState extends StatelessWidget {
     );
   }
 }
-
