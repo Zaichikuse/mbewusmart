@@ -95,6 +95,7 @@ class LocationBloc extends Bloc<LocationEvent, LocationState> {
   ) async {
     emit(LocationLoading());
 
+    // Step 1: Permission check
     final permission = await Geolocator.checkPermission();
     final requestedPermission =
         permission == LocationPermission.denied ||
@@ -108,29 +109,53 @@ class LocationBloc extends Bloc<LocationEvent, LocationState> {
       return;
     }
 
-    final result = await getCurrentLocation();
-
-    result.fold((failure) => emit(LocationError(failure.message)), (
-      location,
-    ) async {
-      // Also find nearest officer and dealer
-      final officerResult = await getNearestExtensionOfficer(
-        location.latitude,
-        location.longitude,
-      );
-      final dealerResult = await getNearestAgroDealer(
-        location.latitude,
-        location.longitude,
-      );
-
+    // Step 2: Verify location services are enabled
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
       emit(
-        LocationLoaded(
-          location: location,
-          nearestOfficer: officerResult.fold((l) => null, (r) => r),
-          nearestDealer: dealerResult.fold((l) => null, (r) => r),
+        const LocationError(
+          'Location services are turned off. Please enable GPS.',
         ),
       );
-    });
+      return;
+    }
+
+    // Step 3: Get current location (await fully — no nested callbacks)
+    final result = await getCurrentLocation();
+
+    // FIX: Properly await both arms of the fold instead of using
+    // a fire-and-forget async closure inside fold().
+    final LocationInfo? location = result.fold((failure) => null, (loc) => loc);
+
+    if (location == null) {
+      final failureMessage = result.fold(
+        (failure) => failure.message,
+        (_) => 'Could not get location',
+      );
+      emit(LocationError(failureMessage));
+      return;
+    }
+
+    // Step 4: Find nearest officer and dealer (sequential awaits)
+    final officerResult = await getNearestExtensionOfficer(
+      location.latitude,
+      location.longitude,
+    );
+    final dealerResult = await getNearestAgroDealer(
+      location.latitude,
+      location.longitude,
+    );
+
+    // Step 5: Emit final state — guarded against handler completion
+    if (emit.isDone) return;
+
+    emit(
+      LocationLoaded(
+        location: location,
+        nearestOfficer: officerResult.fold((l) => null, (r) => r),
+        nearestDealer: dealerResult.fold((l) => null, (r) => r),
+      ),
+    );
   }
 
   Future<void> _onFindNearestOfficer(
@@ -143,6 +168,8 @@ class LocationBloc extends Bloc<LocationEvent, LocationState> {
         event.latitude,
         event.longitude,
       );
+
+      if (emit.isDone) return;
 
       result.fold(
         (failure) => null,
@@ -161,6 +188,8 @@ class LocationBloc extends Bloc<LocationEvent, LocationState> {
         event.latitude,
         event.longitude,
       );
+
+      if (emit.isDone) return;
 
       result.fold(
         (failure) => null,

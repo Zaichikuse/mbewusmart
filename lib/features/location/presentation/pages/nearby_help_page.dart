@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -18,16 +19,38 @@ class NearbyHelpPage extends StatefulWidget {
 }
 
 class _NearbyHelpPageState extends State<NearbyHelpPage> {
+  Timer? _timeoutTimer;
+  bool _showFallback = false;
+
+  // Blantyre coordinates as fallback so demo never gets stuck
+  static const double _fallbackLat = -15.7861;
+  static const double _fallbackLng = 35.0058;
+  static const String _fallbackPlace = 'Blantyre';
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final bloc = context.read<LocationBloc>();
-      if (bloc.state is! LocationLoaded) {
-        bloc.add(LocationGetCurrent());
-      }
+      // Always trigger a fresh location request when this page opens
+      context.read<LocationBloc>().add(LocationGetCurrent());
+
+      // After 8 seconds, if still loading, show fallback (Blantyre) data
+      // so the user is never stuck on a spinner.
+      _timeoutTimer = Timer(const Duration(seconds: 8), () {
+        if (!mounted) return;
+        final state = context.read<LocationBloc>().state;
+        if (state is! LocationLoaded) {
+          setState(() => _showFallback = true);
+        }
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _timeoutTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -46,123 +69,37 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppTheme.primaryGreen, AppTheme.primaryGreenLight],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.location_on,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        isChichewa ? 'Othandizira Pafupi' : 'Help Near You',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    isChichewa
-                        ? 'Funsani anthu amathandizo pafupi ndi inu'
-                        : 'Find extension officers and agro-dealers near you',
-                    style: const TextStyle(fontSize: 14, color: Colors.white70),
-                  ),
-                ],
-              ),
-            ),
+            _buildHeader(isChichewa),
             const SizedBox(height: 24),
             BlocBuilder<LocationBloc, LocationState>(
               builder: (context, locationState) {
-                if (locationState is LocationLoading) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(child: CircularProgressIndicator()),
+                // Use real GPS data if available
+                if (locationState is LocationLoaded) {
+                  return _buildHelpContent(
+                    isChichewa: isChichewa,
+                    lat: locationState.location.latitude,
+                    lng: locationState.location.longitude,
+                    placeLabel:
+                        locationState.location.placeName ??
+                        locationState.location.district ??
+                        'Unknown',
+                    isFallback: false,
                   );
                 }
 
-                if (locationState is LocationError) {
-                  return _buildLocationError(
-                    context,
-                    isChichewa,
-                    locationState,
+                // Use fallback (Blantyre) if timed out or errored
+                if (_showFallback || locationState is LocationError) {
+                  return _buildHelpContent(
+                    isChichewa: isChichewa,
+                    lat: _fallbackLat,
+                    lng: _fallbackLng,
+                    placeLabel: _fallbackPlace,
+                    isFallback: true,
                   );
                 }
 
-                if (locationState is! LocationLoaded) {
-                  return _buildRequestLocationCard(context, isChichewa);
-                }
-
-                final officers = _sortedOfficers(locationState);
-                final dealers = _sortedDealers(locationState);
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildLocationSummary(locationState, isChichewa),
-                    const SizedBox(height: 20),
-                    Text(
-                      isChichewa
-                          ? 'Ma Extension Officers'
-                          : 'Extension Officers',
-                      style: AppTextStyles.headingSmall,
-                    ),
-                    const SizedBox(height: 12),
-                    ...officers
-                        .take(5)
-                        .map(
-                          (officer) => _buildOfficerCard(
-                            context,
-                            officer,
-                            isChichewa,
-                            distanceKm: _distanceKm(
-                              locationState.location.latitude,
-                              locationState.location.longitude,
-                              officer.latitude,
-                              officer.longitude,
-                            ),
-                          ),
-                        ),
-                    const SizedBox(height: 24),
-                    Text(
-                      isChichewa ? 'Ma Agro-Dealers' : 'Agro-Dealers',
-                      style: AppTextStyles.headingSmall,
-                    ),
-                    const SizedBox(height: 12),
-                    ...dealers
-                        .take(5)
-                        .map(
-                          (dealer) => _buildDealerCard(
-                            context,
-                            dealer,
-                            isChichewa,
-                            distanceKm: _distanceKm(
-                              locationState.location.latitude,
-                              locationState.location.longitude,
-                              dealer.latitude,
-                              dealer.longitude,
-                            ),
-                          ),
-                        ),
-                  ],
-                );
+                // Still loading
+                return _buildLoadingCard(isChichewa);
               },
             ),
           ],
@@ -171,127 +108,251 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
     );
   }
 
-  Widget _buildRequestLocationCard(BuildContext context, bool isChichewa) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              isChichewa
-                  ? 'Tifunika location yanu kuti tikusonyezeni thandizo lapafupi.'
-                  : 'We need your location to show nearby help.',
-              style: AppTextStyles.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: () =>
-                  context.read<LocationBloc>().add(LocationGetCurrent()),
-              icon: const Icon(Icons.my_location),
-              label: Text(isChichewa ? 'Pezani malo anga' : 'Get my location'),
-            ),
-          ],
+  Widget _buildHeader(bool isChichewa) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppTheme.primaryGreen, AppTheme.primaryGreenLight],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(16),
       ),
-    );
-  }
-
-  Widget _buildLocationError(
-    BuildContext context,
-    bool isChichewa,
-    LocationError state,
-  ) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              isChichewa
-                  ? 'Sitinapeze malo anu pano. Chonde yatsani GPS ndi ma permissions kenako yesaninso.'
-                  : 'Could not get your location. Please enable GPS and location permissions, then try again.',
-              style: AppTextStyles.bodyMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(state.message, style: AppTextStyles.bodySmall),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: () =>
-                  context.read<LocationBloc>().add(LocationGetCurrent()),
-              icon: const Icon(Icons.refresh),
-              label: Text(isChichewa ? 'Yesaninso' : 'Retry'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLocationSummary(LocationLoaded state, bool isChichewa) {
-    final label =
-        state.location.placeName ?? state.location.district ?? 'Unknown';
-    return Row(
-      children: [
-        const Icon(Icons.place, color: AppTheme.primaryGreen),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            isChichewa ? 'Malo anu: $label' : 'Your location: $label',
-            style: AppTextStyles.bodyMedium,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.location_on, color: Colors.white, size: 28),
+              const SizedBox(width: 8),
+              Text(
+                isChichewa ? 'Othandizira Pafupi' : 'Help Near You',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 8),
+          Text(
+            isChichewa
+                ? 'Funsani anthu amathandizo pafupi ndi inu'
+                : 'Find extension officers and agro-dealers near you',
+            style: const TextStyle(fontSize: 14, color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingCard(bool isChichewa) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        children: [
+          const Center(child: CircularProgressIndicator()),
+          const SizedBox(height: 16),
+          Text(
+            isChichewa ? 'Tikupezani malo anu...' : 'Finding your location...',
+            style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+          ),
+          const SizedBox(height: 16),
+          TextButton.icon(
+            onPressed: () {
+              setState(() => _showFallback = true);
+            },
+            icon: const Icon(Icons.skip_next),
+            label: Text(
+              isChichewa
+                  ? 'Pitirizani popanda location'
+                  : 'Continue without location',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHelpContent({
+    required bool isChichewa,
+    required double lat,
+    required double lng,
+    required String placeLabel,
+    required bool isFallback,
+  }) {
+    final officers = _sortedOfficers(lat, lng);
+    final dealers = _sortedDealers(lat, lng);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Location summary
+        Row(
+          children: [
+            Icon(
+              isFallback ? Icons.info_outline : Icons.place,
+              color: isFallback ? AppTheme.warningAmber : AppTheme.primaryGreen,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                isFallback
+                    ? (isChichewa
+                          ? 'Tikukusonyezani athandizi a $placeLabel'
+                          : 'Showing help in $placeLabel area')
+                    : (isChichewa
+                          ? 'Malo anu: $placeLabel'
+                          : 'Your location: $placeLabel'),
+                style: AppTextStyles.bodyMedium,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                setState(() => _showFallback = false);
+                context.read<LocationBloc>().add(LocationGetCurrent());
+                _timeoutTimer?.cancel();
+                _timeoutTimer = Timer(const Duration(seconds: 8), () {
+                  if (!mounted) return;
+                  final state = context.read<LocationBloc>().state;
+                  if (state is! LocationLoaded) {
+                    setState(() => _showFallback = true);
+                  }
+                });
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: Text(isChichewa ? 'Sinthani' : 'Refresh'),
+            ),
+          ],
         ),
-        TextButton.icon(
-          onPressed: () =>
-              context.read<LocationBloc>().add(LocationGetCurrent()),
-          icon: const Icon(Icons.refresh, size: 18),
-          label: Text(isChichewa ? 'Sinthani' : 'Refresh'),
+        const SizedBox(height: 20),
+
+        // Extension Officers section
+        Row(
+          children: [
+            Icon(Icons.support_agent, color: AppTheme.primaryGreen),
+            const SizedBox(width: 8),
+            Text(
+              isChichewa ? 'Ma Extension Officers' : 'Extension Officers',
+              style: AppTextStyles.headingSmall,
+            ),
+          ],
         ),
+        const SizedBox(height: 12),
+        if (officers.isEmpty)
+          _buildEmptyMessage(
+            isChichewa
+                ? 'Palibe Extension Officer wapezeka pafupi.'
+                : 'No Extension Officers found nearby.',
+          )
+        else
+          ...officers
+              .take(5)
+              .map(
+                (officer) => _buildOfficerCard(
+                  context,
+                  officer,
+                  isChichewa,
+                  distanceKm: _distanceKm(
+                    lat,
+                    lng,
+                    officer.latitude,
+                    officer.longitude,
+                  ),
+                ),
+              ),
+
+        const SizedBox(height: 24),
+
+        // Agro Dealers section
+        Row(
+          children: [
+            Icon(Icons.store, color: AppTheme.accentOrange),
+            const SizedBox(width: 8),
+            Text(
+              isChichewa ? 'Ma Agro-Dealers' : 'Agro-Dealers',
+              style: AppTextStyles.headingSmall,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (dealers.isEmpty)
+          _buildEmptyMessage(
+            isChichewa
+                ? 'Palibe Agro Dealer wapezeka pafupi.'
+                : 'No Agro Dealers found nearby.',
+          )
+        else
+          ...dealers
+              .take(5)
+              .map(
+                (dealer) => _buildDealerCard(
+                  context,
+                  dealer,
+                  isChichewa,
+                  distanceKm: _distanceKm(
+                    lat,
+                    lng,
+                    dealer.latitude,
+                    dealer.longitude,
+                  ),
+                ),
+              ),
       ],
     );
   }
 
-  List<ExtensionOfficer> _sortedOfficers(LocationLoaded state) {
+  Widget _buildEmptyMessage(String message) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: AppTheme.textMuted),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppTheme.textMuted,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<ExtensionOfficer> _sortedOfficers(double lat, double lng) {
     final officers = List<ExtensionOfficer>.from(
       MalawiDataSource.extensionOfficers,
     );
     officers.sort(
-      (a, b) =>
-          _distanceKm(
-            state.location.latitude,
-            state.location.longitude,
-            a.latitude,
-            a.longitude,
-          ).compareTo(
-            _distanceKm(
-              state.location.latitude,
-              state.location.longitude,
-              b.latitude,
-              b.longitude,
-            ),
-          ),
+      (a, b) => _distanceKm(
+        lat,
+        lng,
+        a.latitude,
+        a.longitude,
+      ).compareTo(_distanceKm(lat, lng, b.latitude, b.longitude)),
     );
     return officers;
   }
 
-  List<AgroDealer> _sortedDealers(LocationLoaded state) {
+  List<AgroDealer> _sortedDealers(double lat, double lng) {
     final dealers = List<AgroDealer>.from(MalawiDataSource.agroDealers);
     dealers.sort(
-      (a, b) =>
-          _distanceKm(
-            state.location.latitude,
-            state.location.longitude,
-            a.latitude,
-            a.longitude,
-          ).compareTo(
-            _distanceKm(
-              state.location.latitude,
-              state.location.longitude,
-              b.latitude,
-              b.longitude,
-            ),
-          ),
+      (a, b) => _distanceKm(
+        lat,
+        lng,
+        a.latitude,
+        a.longitude,
+      ).compareTo(_distanceKm(lat, lng, b.latitude, b.longitude)),
     );
     return dealers;
   }
@@ -304,98 +365,106 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
   }) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryGreen.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.person,
-                color: AppTheme.primaryGreen,
-                size: 28,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    officer.name,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryGreen.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    officer.area ?? officer.district,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textLight,
-                    ),
+                  child: const Icon(
+                    Icons.person,
+                    color: AppTheme.primaryGreen,
+                    size: 28,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${distanceKm.toStringAsFixed(1)} km',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.primaryGreen,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        Icons.phone,
-                        size: 14,
-                        color: AppTheme.textMuted,
-                      ),
-                      const SizedBox(width: 4),
                       Text(
-                        officer.phone,
+                        officer.name,
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.textMuted,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        officer.area ?? officer.district,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.textLight,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.phone,
+                            size: 13,
+                            color: AppTheme.textMuted,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            officer.phone,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textMuted,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${distanceKm.toStringAsFixed(1)} km',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.primaryGreen,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            Column(
+            const SizedBox(height: 12),
+            Row(
               children: [
-                IconButton(
-                  onPressed: () => _makePhoneCall(officer.phone),
-                  icon: const Icon(Icons.call, color: AppTheme.primaryGreen),
-                  style: IconButton.styleFrom(
-                    backgroundColor: AppTheme.primaryGreen.withValues(
-                      alpha: 0.1,
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _makePhoneCall(officer.phone),
+                    icon: const Icon(Icons.phone, size: 18),
+                    label: Text(isChichewa ? 'Lowa Fono' : 'Call'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                IconButton(
-                  onPressed: () => _openDirections(
-                    latitude: officer.latitude,
-                    longitude: officer.longitude,
-                    label: officer.name,
-                  ),
-                  icon: const Icon(
-                    Icons.navigation,
-                    color: AppTheme.primaryGreen,
-                  ),
-                  tooltip: isChichewa ? 'Tsegulani mapu' : 'Open directions',
-                  style: IconButton.styleFrom(
-                    backgroundColor: AppTheme.primaryGreen.withValues(
-                      alpha: 0.1,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openDirections(
+                      latitude: officer.latitude,
+                      longitude: officer.longitude,
+                      label: officer.name,
+                    ),
+                    icon: const Icon(Icons.navigation, size: 18),
+                    label: Text(isChichewa ? 'Mapu' : 'Directions'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.primaryGreen,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                   ),
                 ),
@@ -415,109 +484,117 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
   }) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.accentOrange.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.store,
-                color: AppTheme.accentOrange,
-                size: 28,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    dealer.name,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentOrange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    dealer.district,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textLight,
-                    ),
+                  child: const Icon(
+                    Icons.store,
+                    color: AppTheme.accentOrange,
+                    size: 28,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${distanceKm.toStringAsFixed(1)} km',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.accentOrange,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        Icons.phone,
-                        size: 14,
-                        color: AppTheme.textMuted,
-                      ),
-                      const SizedBox(width: 4),
                       Text(
-                        dealer.phone,
+                        dealer.name,
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.textMuted,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${dealer.district}${dealer.area != null ? " • ${dealer.area}" : ""}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.textLight,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.phone,
+                            size: 13,
+                            color: AppTheme.textMuted,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            dealer.phone,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textMuted,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${distanceKm.toStringAsFixed(1)} km',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.accentOrange,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (dealer.products.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          dealer.products.take(3).join(', '),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppTheme.textMuted,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
-                  if (dealer.products.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      dealer.products.take(3).join(', '),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppTheme.textMuted,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+                ),
+              ],
             ),
-            Column(
+            const SizedBox(height: 12),
+            Row(
               children: [
-                IconButton(
-                  onPressed: () => _makePhoneCall(dealer.phone),
-                  icon: const Icon(Icons.call, color: AppTheme.accentOrange),
-                  style: IconButton.styleFrom(
-                    backgroundColor: AppTheme.accentOrange.withValues(
-                      alpha: 0.1,
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _makePhoneCall(dealer.phone),
+                    icon: const Icon(Icons.phone, size: 18),
+                    label: Text(isChichewa ? 'Lowa Fono' : 'Call'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.accentOrange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                IconButton(
-                  onPressed: () => _openDirections(
-                    latitude: dealer.latitude,
-                    longitude: dealer.longitude,
-                    label: dealer.name,
-                  ),
-                  icon: const Icon(
-                    Icons.navigation,
-                    color: AppTheme.accentOrange,
-                  ),
-                  tooltip: isChichewa ? 'Tsegulani mapu' : 'Open directions',
-                  style: IconButton.styleFrom(
-                    backgroundColor: AppTheme.accentOrange.withValues(
-                      alpha: 0.1,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openDirections(
+                      latitude: dealer.latitude,
+                      longitude: dealer.longitude,
+                      label: dealer.name,
+                    ),
+                    icon: const Icon(Icons.navigation, size: 18),
+                    label: Text(isChichewa ? 'Mapu' : 'Directions'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.accentOrange,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                   ),
                 ),
