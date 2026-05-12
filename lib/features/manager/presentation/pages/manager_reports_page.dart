@@ -6,6 +6,8 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../reports/data/services/report_service.dart';
 import '../../../reports/domain/entities/diagnosis_report.dart';
+import '../../../../core/services/report_share_service.dart';
+import '../../../../shared/widgets/share_report_button.dart';
 
 // Kept for backward compatibility — dashboard still passes this enum,
 // but we no longer filter by status (diagnoses are historical records).
@@ -332,9 +334,16 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
 
               const SizedBox(height: 24),
 
+              // Share report via WhatsApp / other apps
+              ShareReportButton(
+                label: isChichewa ? 'Tumiza pa WhatsApp' : 'Share via WhatsApp',
+                onShare: () => ReportShareService.shareReport(report: report),
+              ),
+              const SizedBox(height: 12),
+
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
+                child: OutlinedButton(
                   onPressed: () => Navigator.of(ctx).pop(),
                   child: Text(isChichewa ? 'Tsekani' : 'Close'),
                 ),

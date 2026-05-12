@@ -7,6 +7,8 @@ import '../../../alerts/presentation/bloc/alerts_bloc.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../reports/data/services/report_service.dart';
 import '../../../reports/domain/entities/diagnosis_report.dart';
+import '../../../../core/services/report_share_service.dart';
+import '../../../../shared/widgets/share_report_button.dart';
 
 class OfficerDashboardPage extends StatefulWidget {
   const OfficerDashboardPage({super.key});
@@ -62,7 +64,7 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                   _buildStatsCards(state, isChichewa),
                   const SizedBox(height: 24),
                   Text(
-                    isChichewa ? 'Ma Alert' : 'Low Confidence Cases',
+                    isChichewa ? 'Ma Alert' : 'Farmer Alerts',
                     style: AppTextStyles.headingSmall,
                   ),
                   const SizedBox(height: 12),
@@ -132,7 +134,7 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
           const SizedBox(height: 12),
           Text(
             isChichewa
-                ? 'Pitani ku Field kuti mulandre ndi aMlimi'
+                ? 'Pitani ku Field kuti muthandize alimi ndi mavuto awo a mbewu'
                 : 'Visit fields to assist farmers with their crop issues',
             style: const TextStyle(color: Colors.white70),
           ),
@@ -516,7 +518,7 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
     }
 
     return StreamBuilder<List<DiagnosisReport>>(
-      stream: _reportService.watchReportsForOfficer(officerId),
+      stream: _reportService.watchAllReports(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -759,6 +761,21 @@ class _OfficerDashboardPageState extends State<OfficerDashboardPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  // Share report via WhatsApp / other apps
+                  ShareReportButton(
+                    label: isChichewa
+                        ? 'Tumiza pa WhatsApp'
+                        : 'Share via WhatsApp',
+                    onShare: () => ReportShareService.shareReport(
+                      report: report,
+                      officerNotes: responseController.text.trim().isNotEmpty
+                          ? responseController.text.trim()
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(

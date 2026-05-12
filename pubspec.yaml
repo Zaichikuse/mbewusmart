@@ -26,7 +26,7 @@ dependencies:
 
   # Image handling
   image_picker: ^1.0.4
-  path_provider: ^2.1.1
+  path_provider: ^2.1.4
   path: ^1.8.3
   flutter_image_compress: ^2.1.0
 
@@ -64,6 +64,11 @@ dependencies:
   
   # URL Launcher for phone calls
   url_launcher: ^6.2.1
+  
+  # PDF generation & sharing (for WhatsApp report export)
+  pdf: ^3.10.8
+  printing: ^5.12.0
+  share_plus: ^10.0.2
 
 dev_dependencies:
   flutter_test:
@@ -71,8 +76,33 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   hive_generator: ^2.0.1
   build_runner: ^2.4.7
+  
+  # Launcher icon & splash screen generation
+  flutter_launcher_icons: ^0.14.1
+  flutter_native_splash: ^2.4.1
 
 flutter:
   uses-material-design: true
   assets:
     - .env
+    - assets/icons/
+
+# Launcher icon configuration
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icons/mbewusmart_logo.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#4CAF50"
+  adaptive_icon_foreground: "assets/icons/mbewusmart_logo_foreground.png"
+
+# Native splash screen configuration
+flutter_native_splash:
+  color: "#4CAF50"
+  image: assets/icons/mbewusmart_logo.png
+  android_12:
+    color: "#4CAF50"
+    image: assets/icons/mbewusmart_logo_foreground.png
+  android: true
+  ios: false
+  fullscreen: true
