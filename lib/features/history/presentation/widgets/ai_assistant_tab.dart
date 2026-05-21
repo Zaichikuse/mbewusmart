@@ -323,12 +323,14 @@ class _AiAssistantTabState extends State<AiAssistantTab> {
         runSpacing: 8,
         children: [
           ActionChip(
-            label: Text(widget.isChichewa ? 'Pafupi thandizo' : 'Nearby help'),
+            label: Text(
+              widget.isChichewa ? 'Thandizo la Pafupi' : 'Nearby help',
+            ),
             onPressed: _isLoading ? null : _sendNearbyHelp,
           ),
           ActionChip(
             label: Text(
-              widget.isChichewa ? 'Agro-dealer pafupi' : 'Nearby agro-dealer',
+              widget.isChichewa ? 'Agro-dealer wapafupi' : 'Nearby agro-dealer',
             ),
             onPressed: _isLoading ? null : _sendNearbyDealerHelp,
           ),

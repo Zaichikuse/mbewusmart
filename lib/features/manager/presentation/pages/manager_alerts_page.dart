@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/utils/time_ago.dart';
 import '../../../alerts/presentation/bloc/alerts_bloc.dart';
 import '../../../alerts/domain/entities/alert.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
@@ -64,7 +65,7 @@ class _ManagerAlertsPageState extends State<ManagerAlertsPage> {
               controller: _searchController,
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search),
-                hintText: isChichewa ? 'Sakani...' : 'Search...',
+                hintText: isChichewa ? 'Fufuzani...' : 'Search...',
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(
@@ -83,7 +84,7 @@ class _ManagerAlertsPageState extends State<ManagerAlertsPage> {
                 if (state is AlertsError) {
                   return _CenteredMessage(
                     icon: Icons.error_outline,
-                    title: isChichewa ? 'Zalephera' : 'Failed',
+                    title: isChichewa ? 'Zakanika' : 'Failed',
                     message: state.message,
                     action: ElevatedButton(
                       onPressed: () =>
@@ -177,39 +178,46 @@ class _ManagerAlertsPageState extends State<ManagerAlertsPage> {
                     style: AppTextStyles.headingSmall,
                   ),
                   const SizedBox(height: 12),
-                  RadioListTile<ManagerAlertsFilter>(
-                    value: ManagerAlertsFilter.all,
-                    groupValue: _filter,
-                    onChanged: (v) {
-                      setState(() => _filter = v!);
-                      setSheetState(() {});
-                    },
-                    title: Text(isChichewa ? 'Zonse' : 'All'),
-                  ),
-                  RadioListTile<ManagerAlertsFilter>(
-                    value: ManagerAlertsFilter.pendingOnly,
-                    groupValue: _filter,
-                    onChanged: (v) {
-                      setState(() => _filter = v!);
-                      setSheetState(() {});
-                    },
-                    title: Text(isChichewa ? 'Zosabwerera' : 'Pending'),
-                  ),
-                  RadioListTile<ManagerAlertsFilter>(
-                    value: ManagerAlertsFilter.reviewedOnly,
-                    groupValue: _filter,
-                    onChanged: (v) {
-                      setState(() => _filter = v!);
-                      setSheetState(() {});
-                    },
-                    title: Text(isChichewa ? 'Zachapa' : 'Resolved'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: Text(isChichewa ? 'Zonse' : 'All'),
+                        selected: _filter == ManagerAlertsFilter.all,
+                        onSelected: (_) {
+                          setState(() => _filter = ManagerAlertsFilter.all);
+                          setSheetState(() {});
+                        },
+                      ),
+                      ChoiceChip(
+                        label: Text(isChichewa ? 'Sizinakonzedwe' : 'Pending'),
+                        selected: _filter == ManagerAlertsFilter.pendingOnly,
+                        onSelected: (_) {
+                          setState(
+                            () => _filter = ManagerAlertsFilter.pendingOnly,
+                          );
+                          setSheetState(() {});
+                        },
+                      ),
+                      ChoiceChip(
+                        label: Text(isChichewa ? 'Zakonzedwa' : 'Resolved'),
+                        selected: _filter == ManagerAlertsFilter.reviewedOnly,
+                        onSelected: (_) {
+                          setState(
+                            () => _filter = ManagerAlertsFilter.reviewedOnly,
+                          );
+                          setSheetState(() {});
+                        },
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: () => Navigator.of(sheetContext).pop(),
-                      child: Text(isChichewa ? 'Tsekani' : 'Done'),
+                      child: Text(isChichewa ? 'Tamaliza' : 'Done'),
                     ),
                   ),
                 ],
@@ -472,7 +480,7 @@ class _AlertTile extends StatelessWidget {
                   _buildDetailRow(
                     Icons.access_time,
                     isChichewa ? 'Nthawi' : 'Time',
-                    _formatTime(alert.timestamp),
+                    timeAgoFromTimestamp(alert.timestamp),
                   ),
 
                   const SizedBox(height: 16),
@@ -525,7 +533,7 @@ class _AlertTile extends StatelessWidget {
                     if (alert.respondedAt != null) ...[
                       const SizedBox(height: 6),
                       Text(
-                        '${isChichewa ? "Yathandizidwa" : "Resolved on"} ${_formatTime(alert.respondedAt!)}',
+                        '${isChichewa ? "Yathandizidwa" : "Resolved on"} ${timeAgoFromTimestamp(alert.respondedAt!)}',
                         style: AppTextStyles.caption.copyWith(
                           color: AppTheme.textMuted,
                         ),
@@ -542,7 +550,7 @@ class _AlertTile extends StatelessWidget {
                         child: OutlinedButton.icon(
                           onPressed: () => _callFarmer(alert.farmerPhone),
                           icon: const Icon(Icons.phone),
-                          label: Text(isChichewa ? 'Lowa Fono' : 'Call Farmer'),
+                          label: Text(isChichewa ? 'Lowa Foni' : 'Call Farmer'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.primaryGreen,
                             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -713,10 +721,6 @@ class _AlertTile extends StatelessWidget {
         backgroundColor: AppTheme.healthyGreen,
       ),
     );
-  }
-
-  String _formatTime(DateTime dt) {
-    return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }
 

@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'core/localization/fallback_material_localizations_delegate.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_event.dart';
@@ -11,6 +12,8 @@ import 'features/diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import 'features/location/presentation/bloc/location_bloc.dart';
 import 'features/alerts/presentation/bloc/alerts_bloc.dart';
 import 'features/connectivity/presentation/bloc/connectivity_bloc.dart';
+import 'features/disease_watch/presentation/bloc/disease_watch_bloc.dart';
+import 'features/onboarding/data/onboarding_prefs.dart';
 import 'shared/routes/app_router.dart';
 import 'core/di/injection_container.dart' as di;
 import 'core/theme/app_theme.dart';
@@ -24,12 +27,24 @@ void main() async {
   } catch (e) {
     debugPrint('Firebase initialization failed: $e');
   }
+
+  // ONE-TIME RESET so onboarding shows on this build even if
+  // the flag was set by a previous attempt.
+  // DELETE THIS LINE after confirming onboarding appears once.
+
+  final seenOnboarding = await OnboardingPrefs.hasSeenOnboarding();
+  final loggedIn = FirebaseAuth.instance.currentUser != null;
+  final String initialRoute = !seenOnboarding
+      ? '/onboarding'
+      : (!loggedIn ? '/login' : '/home');
   await di.initDependencies();
-  runApp(const MbewuSmartApp());
+  runApp(MbewuSmartApp(initialRoute: initialRoute));
 }
 
 class MbewuSmartApp extends StatefulWidget {
-  const MbewuSmartApp({super.key});
+  final String initialRoute;
+
+  const MbewuSmartApp({super.key, required this.initialRoute});
 
   @override
   State<MbewuSmartApp> createState() => _MbewuSmartAppState();
@@ -50,7 +65,10 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
     _settingsBloc = di.sl<SettingsBloc>()..add(SettingsLoadRequested());
     _diagnosisBloc = di.sl<DiagnosisBloc>();
     _alertsBloc = di.sl<AlertsBloc>();
-    _appRouter = AppRouter(authBloc: _authBloc);
+    _appRouter = AppRouter(
+      authBloc: _authBloc,
+      initialLocation: widget.initialRoute,
+    );
   }
 
   @override
@@ -73,6 +91,9 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
         BlocProvider<AlertsBloc>.value(value: _alertsBloc),
         BlocProvider<ConnectivityBloc>(
           create: (_) => di.sl<ConnectivityBloc>()..add(ConnectivityStarted()),
+        ),
+        BlocProvider<DiseaseWatchBloc>(
+          create: (_) => di.sl<DiseaseWatchBloc>(),
         ),
       ],
       child: BlocBuilder<SettingsBloc, SettingsState>(

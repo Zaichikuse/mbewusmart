@@ -29,9 +29,6 @@ class AnalyzeImageUseCase {
     return '';
   }
 
-  // FIXED: Gemini 1.5 models are fully shut down (return 404).
-  // Using current stable models. Loop tries each in order — if quota or
-  // a transient 404 hits the first, the next is tried automatically.
   List<String> get _modelCandidates => const [
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
@@ -72,20 +69,55 @@ class AnalyzeImageUseCase {
       final cropName = cropType.displayName;
       print('[Gemini] Crop type: $cropName');
 
+      // 🔥 CHANGED: Humanized prompt. The AI now talks like a friendly
+      // extension officer giving practical Malawi-specific advice in plain
+      // language a smallholder farmer can act on this week.
       final prompt =
           '''
-You are CropDoc, an expert agricultural diagnostic AI for smallholder farmers in Malawi, Africa.
+You are CropDoc, a knowledgeable and respected agricultural extension officer in Malawi.
+You are talking to a smallholder farmer who may have limited reading skills and
+limited money for inputs. They have just shown you a photo of their $cropName.
 
-Your task: Carefully analyze this $cropName crop image and provide an accurate diagnosis.
+Your job: look at the photo carefully and explain — clearly, respectfully,
+and professionally — what is wrong (or that the crop is healthy), and what
+they should do THIS WEEK to save their harvest.
+
+HOW TO WRITE THE ANSWER:
+- Use SIMPLE English. No scientific names in the explanation (you may put the
+  Latin name in "scientific_name" only).
+-- Talk like a person, not a textbook. Short sentences. Imagine speaking out loud.
+- Be warm and respectful, but professional. You may start with a SHORT, VARIED
+  acknowledgment of 2-5 words (good examples: "Looking at this photo," / "I can
+  see this clearly." / "Thank you for the photo." / "Good that you checked early."
+  / "From what I see here," / "This is a clear image."). VARY the opener — do
+  not repeat the same phrase every time. NEVER use "my friend", "ah",
+  "dear farmer", "hello there", or any folksy phrase. Get to the diagnosis
+  within the first sentence.
+- Treatment should be CONCRETE STEPS for this week. Not chemistry. Not jargon.
+  Example GOOD: "Pull out the worst-looking plants and burn them away from your
+  field. Spray the rest with neem oil mixed with soap, early in the morning,
+  for 3 days."
+  Example BAD: "Apply broad-spectrum systemic fungicide at recommended dosage."
+- Suggest treatments a Malawian smallholder can actually do or afford: neem
+  oil, wood ash, soap spray, removing infected leaves, crop rotation, healthy
+  cuttings from a neighbor, drying soil out, mulching, etc. Mention chemical
+  pesticides only when truly necessary, and name ones sold at Malawian agro-
+  dealers (Mancozeb, Cypermethrin, Dimethoate) — not expensive imports.
+- The "name_chichewa" must be a real Chichewa name or short description the
+  farmer would recognize, not just a translation.
+- The "recommendation" field should be ONE clear action the farmer should do
+  TODAY, in 1-2 short sentences.
+- If the plant is healthy, celebrate it briefly and give one small tip to keep
+  it that way.
 
 IMPORTANT RULES:
-- Look very carefully at the leaves, stems, color, spots, patterns in the image
-- Give a REAL diagnosis based on what you actually see
-- If the plant looks healthy with no visible problems, say "healthy"
-- Only say "unclear" if the image is completely black, completely blurred, or has no visible plant
-- Be confident — farmers need real answers, not vague responses
-- confidence must be an honest integer 60-99 for clear images
-- Return ONLY the JSON below with no other text, no markdown, no backticks
+- Look very carefully at the leaves, stems, color, spots, patterns in the image.
+- Give a REAL diagnosis based on what you actually see.
+- If the plant looks healthy with no visible problems, set diagnosis_type to "healthy".
+- Only say "unclear" if the image is completely black, completely blurred, or has no visible plant.
+- Be confident — farmers need real answers, not vague responses.
+- "confidence" must be an honest integer 60-99 for clear images.
+- Return ONLY the JSON below with no other text, no markdown, no backticks.
 
 {
   "diagnosis_type": "healthy",
@@ -94,12 +126,12 @@ IMPORTANT RULES:
   "scientific_name": null,
   "confidence": 85,
   "severity": "low",
-  "symptoms_observed": ["describe what you actually see in the image"],
-  "causing_factors": "explain the cause or null if healthy",
-  "recommendation": "what the farmer should do right now",
-  "treatment": "specific treatment steps or null if healthy",
-  "prevention": "how to prevent this in future",
-  "pesticide_remedy": "specific pesticide name and dosage or null",
+  "symptoms_observed": ["describe in plain language what you actually see"],
+  "causing_factors": "explain the cause in simple words, or null if healthy",
+  "recommendation": "one clear thing the farmer should do TODAY",
+  "treatment": "step-by-step actions for this week, written like advice from a friend",
+  "prevention": "what to do next season to stop this happening again",
+  "pesticide_remedy": "if a pesticide is truly needed, name one sold in Malawi (Mancozeb, Cypermethrin, Dimethoate) and a simple dose like 'one cap per 15L knapsack', else null",
   "consult_expert": false
 }
 
@@ -108,12 +140,9 @@ diagnosis_type must be one of: disease, pest, nutritional_deficiency, healthy, u
 severity must be one of: low, medium, high
 ''';
 
-      // Track the last error category so we can give a useful message
-      // if every model fails.
       int lastTransientStatus = 0;
       int last404Status = 0;
 
-      // Build the request body once — it's the same for every model.
       final requestBody = jsonEncode({
         'contents': [
           {
@@ -128,30 +157,18 @@ severity must be one of: low, medium, high
         'generationConfig': {
           'temperature': 0.1,
           'topP': 0.8,
-          // Raised from 400 — Gemini 2.5 uses "thinking tokens" before
-          // emitting the answer, and 400 wasn't enough for thinking +
-          // the full JSON, causing MAX_TOKENS truncation mid-output.
           'maxOutputTokens': 1500,
-          // Disable thinking for this call — we want a structured JSON
-          // answer, not chain-of-thought reasoning. This makes the call
-          // faster, cheaper, and avoids the truncation problem entirely.
           'thinkingConfig': {'thinkingBudget': 0},
         },
       });
 
       modelLoop:
       for (final model in _modelCandidates) {
-        // FIXED: /v1beta/ instead of /v1/ — current Gemini models are
-        // exposed reliably on v1beta. The v1 endpoint was the cause of
-        // the 404 "model not found" errors in the logs.
         final uri = Uri.https(
           'generativelanguage.googleapis.com',
           '/v1beta/models/$model:generateContent',
         );
 
-        // Retry the SAME model up to 3 times on transient 5xx errors
-        // (503 "high demand" is the most common). Exponential backoff:
-        // 1s, 2s, 4s. If it still fails, fall through to the next model.
         http.Response? response;
         const maxAttempts = 3;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -188,35 +205,27 @@ severity must be one of: low, medium, high
 
           final code = response.statusCode;
 
-          // Transient server errors → wait and retry the same model.
-          // 503 = overloaded ("high demand"), 500/502/504 = upstream blip.
           final isTransient =
               code == 500 || code == 502 || code == 503 || code == 504;
           if (isTransient && attempt < maxAttempts) {
             lastTransientStatus = code;
-            final waitMs = 1000 * (1 << (attempt - 1)); // 1s, 2s, 4s
+            final waitMs = 1000 * (1 << (attempt - 1));
             print('[Gemini] Transient $code — retrying in ${waitMs}ms');
             await Future.delayed(Duration(milliseconds: waitMs));
             continue;
           }
 
-          // Done retrying this model — break out to evaluate the result.
           break;
         }
 
-        if (response == null) {
-          // Should never happen, but be defensive.
-          continue;
-        }
+        if (response == null) continue;
 
         final code = response.statusCode;
 
-        // Model not available for this key → try next model.
         if (code == 404) {
           last404Status = 404;
           continue modelLoop;
         }
-        // Auth problems are fatal — no point trying other models.
         if (code == 401 || code == 403) {
           return Left(
             ServerFailure(
@@ -224,7 +233,6 @@ severity must be one of: low, medium, high
             ),
           );
         }
-        // Quota or persistent overload on this model → try the next one.
         if (code == 429 ||
             code == 500 ||
             code == 502 ||
@@ -294,7 +302,6 @@ severity must be one of: low, medium, high
         return Right(_buildResultFromJson(diagnosisJson, imagePath, cropType));
       }
 
-      // If we reach here, every model failed across retries.
       if (lastTransientStatus == 503) {
         return Left(
           ServerFailure(

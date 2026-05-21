@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../../../core/di/injection_container.dart' as di;
 import '../../../../core/services/ai_assistant_service.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -51,7 +53,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     final appLoc = LocalizationHelper.getAppLocalizations(context);
     final userRole = _getUserRole();
     final pages = _getPagesForRole(userRole);
-    final navItems = _getNavItemsForRole(userRole, appLoc);
+    final navItems = _getNavItemsForRole(userRole, appLoc, _currentIndex);
     final isSettingsTab = _currentIndex == navItems.length - 1;
     final isChichewa = LocalizationHelper.isChichewa(context);
 
@@ -67,6 +69,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
+          HapticFeedback.lightImpact();
           setState(() {
             _currentIndex = index;
           });
@@ -184,82 +187,104 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   List<BottomNavigationBarItem> _getNavItemsForRole(
     UserRole role,
     AppLocalizations appLoc,
+    int currentIndex,
   ) {
+    Widget navIcon(IconData iconData, bool isActive, int index) {
+      final icon = Icon(iconData);
+      if (!isActive) return icon;
+      return icon
+          .animate(key: ValueKey('nav-$index-$currentIndex'))
+          .scale(
+            begin: const Offset(0.85, 0.85),
+            end: const Offset(1.0, 1.0),
+            duration: 200.ms,
+            curve: Curves.easeOutBack,
+          );
+    }
+
     switch (role) {
       case UserRole.farmer:
         return [
           BottomNavigationBarItem(
-            icon: const Icon(Icons.home_outlined),
-            activeIcon: const Icon(Icons.home),
+            icon: navIcon(Icons.home_outlined, currentIndex == 0, 0),
+            activeIcon: navIcon(Icons.home, currentIndex == 0, 0),
             label: appLoc.home,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.camera_alt_outlined),
-            activeIcon: const Icon(Icons.camera_alt),
+            icon: navIcon(Icons.camera_alt_outlined, currentIndex == 1, 1),
+            activeIcon: navIcon(Icons.camera_alt, currentIndex == 1, 1),
             label: appLoc.scan,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.history_outlined),
-            activeIcon: const Icon(Icons.history),
+            icon: navIcon(Icons.history_outlined, currentIndex == 2, 2),
+            activeIcon: navIcon(Icons.history, currentIndex == 2, 2),
             label: appLoc.history,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.settings_outlined),
-            activeIcon: const Icon(Icons.settings),
+            icon: navIcon(Icons.settings_outlined, currentIndex == 3, 3),
+            activeIcon: navIcon(Icons.settings, currentIndex == 3, 3),
             label: appLoc.settings,
           ),
         ];
       case UserRole.extensionOfficer:
         return [
           BottomNavigationBarItem(
-            icon: const Icon(Icons.dashboard_outlined),
-            activeIcon: const Icon(Icons.dashboard),
+            icon: navIcon(Icons.dashboard_outlined, currentIndex == 0, 0),
+            activeIcon: navIcon(Icons.dashboard, currentIndex == 0, 0),
             label: appLoc.dashboard,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.history_outlined),
-            activeIcon: const Icon(Icons.history),
+            icon: navIcon(Icons.history_outlined, currentIndex == 1, 1),
+            activeIcon: navIcon(Icons.history, currentIndex == 1, 1),
             label: appLoc.history,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.settings_outlined),
-            activeIcon: const Icon(Icons.settings),
+            icon: navIcon(Icons.settings_outlined, currentIndex == 2, 2),
+            activeIcon: navIcon(Icons.settings, currentIndex == 2, 2),
             label: appLoc.settings,
           ),
         ];
       case UserRole.agricultureManager:
         return [
           BottomNavigationBarItem(
-            icon: const Icon(Icons.admin_panel_settings_outlined),
-            activeIcon: const Icon(Icons.admin_panel_settings),
+            icon: navIcon(
+              Icons.admin_panel_settings_outlined,
+              currentIndex == 0,
+              0,
+            ),
+            activeIcon: navIcon(
+              Icons.admin_panel_settings,
+              currentIndex == 0,
+              0,
+            ),
             label: appLoc.dashboard,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.history_outlined),
-            activeIcon: const Icon(Icons.history),
+            icon: navIcon(Icons.history_outlined, currentIndex == 1, 1),
+            activeIcon: navIcon(Icons.history, currentIndex == 1, 1),
             label: appLoc.history,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.settings_outlined),
-            activeIcon: const Icon(Icons.settings),
+            icon: navIcon(Icons.settings_outlined, currentIndex == 2, 2),
+            activeIcon: navIcon(Icons.settings, currentIndex == 2, 2),
             label: appLoc.settings,
           ),
         ];
       case UserRole.agroDealer:
         return [
           BottomNavigationBarItem(
-            icon: const Icon(Icons.store_outlined),
-            activeIcon: const Icon(Icons.store),
+            icon: navIcon(Icons.store_outlined, currentIndex == 0, 0),
+            activeIcon: navIcon(Icons.store, currentIndex == 0, 0),
             label: appLoc.dashboard,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.history_outlined),
-            activeIcon: const Icon(Icons.history),
+            icon: navIcon(Icons.history_outlined, currentIndex == 1, 1),
+            activeIcon: navIcon(Icons.history, currentIndex == 1, 1),
             label: appLoc.history,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.settings_outlined),
-            activeIcon: const Icon(Icons.settings),
+            icon: navIcon(Icons.settings_outlined, currentIndex == 2, 2),
+            activeIcon: navIcon(Icons.settings, currentIndex == 2, 2),
             label: appLoc.settings,
           ),
         ];

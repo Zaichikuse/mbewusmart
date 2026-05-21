@@ -1,0 +1,1312 @@
+=== lib/features/location/presentation/pages/nearby_help_page.dart ===
+import 'dart:async';
+import 'dart:math';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../settings/presentation/bloc/settings_bloc.dart';
+import '../bloc/location_bloc.dart';
+import '../../../location/domain/entities/extension_officer.dart';
+import '../../../location/domain/entities/agro_dealer.dart';
+import '../../../location/data/datasources/malawi_data_source.dart';
+
+class NearbyHelpPage extends StatefulWidget {
+  const NearbyHelpPage({super.key});
+
+  @override
+  State<NearbyHelpPage> createState() => _NearbyHelpPageState();
+}
+
+class _NearbyHelpPageState extends State<NearbyHelpPage> {
+  Timer? _timeoutTimer;
+  bool _showFallback = false;
+
+  // Blantyre coordinates as fallback so demo never gets stuck
+  static const double _fallbackLat = -15.7861;
+  static const double _fallbackLng = 35.0058;
+  static const String _fallbackPlace = 'Blantyre';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Always trigger a fresh location request when this page opens
+      context.read<LocationBloc>().add(LocationGetCurrent());
+
+      // After 8 seconds, if still loading, show fallback (Blantyre) data
+      // so the user is never stuck on a spinner.
+      _timeoutTimer = Timer(const Duration(seconds: 8), () {
+        if (!mounted) return;
+        final state = context.read<LocationBloc>().state;
+        if (state is! LocationLoaded) {
+          setState(() => _showFallback = true);
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timeoutTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settingsState = context.watch<SettingsBloc>().state;
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
+        : true;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(isChichewa ? 'Thandizo Lapafupi' : 'Nearby Help'),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(isChichewa),
+            const SizedBox(height: 24),
+            BlocBuilder<LocationBloc, LocationState>(
+              builder: (context, locationState) {
+                // Use real GPS data if available
+                if (locationState is LocationLoaded) {
+                  return _buildHelpContent(
+                    isChichewa: isChichewa,
+                    lat: locationState.location.latitude,
+                    lng: locationState.location.longitude,
+                    placeLabel:
+                        locationState.location.placeName ??
+                        locationState.location.district ??
+                        'Unknown',
+                    isFallback: false,
+                  );
+                }
+
+                // Use fallback (Blantyre) if timed out or errored
+                if (_showFallback || locationState is LocationError) {
+                  return _buildHelpContent(
+                    isChichewa: isChichewa,
+                    lat: _fallbackLat,
+                    lng: _fallbackLng,
+                    placeLabel: _fallbackPlace,
+                    isFallback: true,
+                  );
+                }
+
+                // Still loading
+                return _buildLoadingCard(isChichewa);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(bool isChichewa) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppTheme.primaryGreen, AppTheme.primaryGreenLight],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.location_on, color: Colors.white, size: 28),
+              const SizedBox(width: 8),
+              Text(
+                isChichewa ? 'Thandizo la Pafupi' : 'Help Near You',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isChichewa
+                ? 'Pezani ma extension officers ndi agro-dealers omwe ali pafupi nanu'
+                : 'Find extension officers and agro-dealers near you',
+            style: const TextStyle(fontSize: 14, color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingCard(bool isChichewa) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        children: [
+          const Center(child: CircularProgressIndicator()),
+          const SizedBox(height: 16),
+          Text(
+            isChichewa ? 'Tikufufuza malo anu...' : 'Finding your location...',
+            style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+          ),
+          const SizedBox(height: 16),
+          TextButton.icon(
+            onPressed: () {
+              setState(() => _showFallback = true);
+            },
+            icon: const Icon(Icons.skip_next),
+            label: Text(
+              isChichewa
+                  ? 'Pitirizani popanda location'
+                  : 'Continue without location',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHelpContent({
+    required bool isChichewa,
+    required double lat,
+    required double lng,
+    required String placeLabel,
+    required bool isFallback,
+  }) {
+    final officers = _sortedOfficers(lat, lng);
+    final dealers = _sortedDealers(lat, lng);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Location summary
+        Row(
+          children: [
+            Icon(
+              isFallback ? Icons.info_outline : Icons.place,
+              color: isFallback ? AppTheme.warningAmber : AppTheme.primaryGreen,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                isFallback
+                    ? (isChichewa
+                          ? 'Tikukusonyezani athandizi a $placeLabel'
+                          : 'Showing help in $placeLabel area')
+                    : (isChichewa
+                          ? 'Malo anu: $placeLabel'
+                          : 'Your location: $placeLabel'),
+                style: AppTextStyles.bodyMedium,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                setState(() => _showFallback = false);
+                context.read<LocationBloc>().add(LocationGetCurrent());
+                _timeoutTimer?.cancel();
+                _timeoutTimer = Timer(const Duration(seconds: 8), () {
+                  if (!mounted) return;
+                  final state = context.read<LocationBloc>().state;
+                  if (state is! LocationLoaded) {
+                    setState(() => _showFallback = true);
+                  }
+                });
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: Text(isChichewa ? 'Refresh' : 'Refresh'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        // Extension Officers section
+        Row(
+          children: [
+            Icon(Icons.support_agent, color: AppTheme.primaryGreen),
+            const SizedBox(width: 8),
+            Text(
+              isChichewa ? 'Ma Extension Officers' : 'Extension Officers',
+              style: AppTextStyles.headingSmall,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (officers.isEmpty)
+          _buildEmptyMessage(
+            isChichewa
+                ? 'Palibe Extension Officer wapezeka pafupi.'
+                : 'No Extension Officers found nearby.',
+          )
+        else
+          ...officers
+              .take(5)
+              .map(
+                (officer) => _buildOfficerCard(
+                  context,
+                  officer,
+                  isChichewa,
+                  distanceKm: _distanceKm(
+                    lat,
+                    lng,
+                    officer.latitude,
+                    officer.longitude,
+                  ),
+                ),
+              ),
+
+        const SizedBox(height: 24),
+
+        // Agro Dealers section
+        Row(
+          children: [
+            Icon(Icons.store, color: AppTheme.accentOrange),
+            const SizedBox(width: 8),
+            Text(
+              isChichewa ? 'Ma Agro-Dealers' : 'Agro-Dealers',
+              style: AppTextStyles.headingSmall,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (dealers.isEmpty)
+          _buildEmptyMessage(
+            isChichewa
+                ? 'Palibe Agro Dealer wapezeka pafupi.'
+                : 'No Agro Dealers found nearby.',
+          )
+        else
+          ...dealers
+              .take(5)
+              .map(
+                (dealer) => _buildDealerCard(
+                  context,
+                  dealer,
+                  isChichewa,
+                  distanceKm: _distanceKm(
+                    lat,
+                    lng,
+                    dealer.latitude,
+                    dealer.longitude,
+                  ),
+                ),
+              ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyMessage(String message) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: AppTheme.textMuted),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppTheme.textMuted,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<ExtensionOfficer> _sortedOfficers(double lat, double lng) {
+    final officers = List<ExtensionOfficer>.from(
+      MalawiDataSource.extensionOfficers,
+    );
+    officers.sort(
+      (a, b) => _distanceKm(
+        lat,
+        lng,
+        a.latitude,
+        a.longitude,
+      ).compareTo(_distanceKm(lat, lng, b.latitude, b.longitude)),
+    );
+    return officers;
+  }
+
+  List<AgroDealer> _sortedDealers(double lat, double lng) {
+    final dealers = List<AgroDealer>.from(MalawiDataSource.agroDealers);
+    dealers.sort(
+      (a, b) => _distanceKm(
+        lat,
+        lng,
+        a.latitude,
+        a.longitude,
+      ).compareTo(_distanceKm(lat, lng, b.latitude, b.longitude)),
+    );
+    return dealers;
+  }
+
+  Widget _buildOfficerCard(
+    BuildContext context,
+    ExtensionOfficer officer,
+    bool isChichewa, {
+    required double distanceKm,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryGreen.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    color: AppTheme.primaryGreen,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        officer.name,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        officer.area ?? officer.district,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.textLight,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.phone,
+                            size: 13,
+                            color: AppTheme.textMuted,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            officer.phone,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textMuted,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${distanceKm.toStringAsFixed(1)} km',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.primaryGreen,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _makePhoneCall(officer.phone),
+                    icon: const Icon(Icons.phone, size: 18),
+                    label: Text(isChichewa ? 'Imbani' : 'Call'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openDirections(
+                      latitude: officer.latitude,
+                      longitude: officer.longitude,
+                      label: officer.name,
+                    ),
+                    icon: const Icon(Icons.navigation, size: 18),
+                    label: Text(isChichewa ? 'Mapu' : 'Directions'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.primaryGreen,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDealerCard(
+    BuildContext context,
+    AgroDealer dealer,
+    bool isChichewa, {
+    required double distanceKm,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentOrange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.store,
+                    color: AppTheme.accentOrange,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        dealer.name,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${dealer.district}${dealer.area != null ? " • ${dealer.area}" : ""}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.textLight,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.phone,
+                            size: 13,
+                            color: AppTheme.textMuted,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            dealer.phone,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textMuted,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${distanceKm.toStringAsFixed(1)} km',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.accentOrange,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (dealer.products.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          dealer.products.take(3).join(', '),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppTheme.textMuted,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _makePhoneCall(dealer.phone),
+                    icon: const Icon(Icons.phone, size: 18),
+                    label: Text(isChichewa ? 'Imbani' : 'Call'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.accentOrange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openDirections(
+                      latitude: dealer.latitude,
+                      longitude: dealer.longitude,
+                      label: dealer.name,
+                    ),
+                    icon: const Icon(Icons.navigation, size: 18),
+                    label: Text(isChichewa ? 'Mapu' : 'Directions'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.accentOrange,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    }
+  }
+
+  Future<void> _openDirections({
+    required double latitude,
+    required double longitude,
+    required String label,
+  }) async {
+    final encodedLabel = Uri.encodeComponent(label);
+    final googleMapsUri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude&query=$encodedLabel&travelmode=driving',
+    );
+    if (await canLaunchUrl(googleMapsUri)) {
+      await launchUrl(googleMapsUri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  double _distanceKm(double lat1, double lon1, double lat2, double lon2) {
+    const earthRadiusKm = 6371.0;
+    final dLat = _toRadians(lat2 - lat1);
+    final dLon = _toRadians(lon2 - lon1);
+    final a =
+        sin(dLat / 2) * sin(dLat / 2) +
+        cos(_toRadians(lat1)) *
+            cos(_toRadians(lat2)) *
+            sin(dLon / 2) *
+            sin(dLon / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return earthRadiusKm * c;
+  }
+
+  double _toRadians(double degree) => degree * pi / 180.0;
+}
+
+
+=== lib/features/notifications/presentation/pages/notification_page.dart ===
+import 'package:flutter/material.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../l10n/app_localizations.dart';
+import '../../../../core/utils/localization_helper.dart';
+import '../../data/services/notification_service.dart';
+import '../../domain/entities/notification.dart';
+
+class NotificationsPage extends StatefulWidget {
+  const NotificationsPage({super.key});
+
+  @override
+  _NotificationsPageState createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<NotificationsPage> {
+  final NotificationService _notificationService = NotificationService.instance;
+  List<AppNotification> _notifications = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotifications();
+  }
+
+  void _loadNotifications() {
+    setState(() {
+      _notifications = _notificationService.notifications;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appLoc = AppLocalizations.of(context);
+    final isChichewa = LocalizationHelper.isChichewa(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(appLoc?.notificationsTitle ?? 'Notifications'),
+        actions: [
+          if (_notifications.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                _notificationService.markAllAsRead();
+                _loadNotifications();
+              },
+              child: Text(
+                isChichewa ? 'Sungani ngati adawoneka' : 'Mark all read',
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          if (_notifications.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete_sweep),
+              onPressed: () {
+                _showClearAllDialog(context, isChichewa, appLoc);
+              },
+            ),
+        ],
+      ),
+      body: _notifications.isEmpty
+          ? _buildEmptyState(isChichewa, appLoc)
+          : _buildNotificationList(),
+    );
+  }
+
+  Widget _buildEmptyState(bool isChichewa, AppLocalizations? appLoc) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.notifications_none,
+            size: 80,
+            color: AppTheme.primaryGreen.withValues(alpha: 0.5),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            appLoc?.noNotifications ?? 'No notifications',
+            style: AppTextStyles.headingMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isChichewa
+                ? 'Mauthenga adzawonekera apa'
+                : 'Notifications will appear here',
+            style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotificationList() {
+    return ListView.builder(
+      itemCount: _notifications.length,
+      itemBuilder: (context, index) {
+        return _buildNotificationTile(_notifications[index]);
+      },
+    );
+  }
+
+  Widget _buildNotificationTile(AppNotification notification) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: notification.isRead ? Colors.white : Colors.blue[50],
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: _getNotificationColor(notification.type),
+          child: Icon(
+            _getNotificationIcon(notification.type),
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+        title: Text(
+          notification.title,
+          style: AppTextStyles.bodyLarge.copyWith(
+            fontWeight: notification.isRead
+                ? FontWeight.normal
+                : FontWeight.bold,
+          ),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              notification.body,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.access_time, size: 12, color: AppTheme.textMuted),
+                const SizedBox(width: 4),
+                Text(
+                  _formatTime(notification.timestamp),
+                  style: AppTextStyles.caption,
+                ),
+                if (notification.epa != null) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryGreen.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      notification.epa!,
+                      style: AppTextStyles.caption.copyWith(
+                        color: AppTheme.primaryGreen,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+        trailing: notification.isRead
+            ? null
+            : Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: AppTheme.primaryGreen,
+                  shape: BoxShape.circle,
+                ),
+              ),
+        onTap: () {
+          _notificationService.markAsRead(notification.id);
+          _loadNotifications();
+          _handleNotificationTap(notification);
+        },
+        onLongPress: () {
+          _showNotificationOptions(notification);
+        },
+      ),
+    );
+  }
+
+  void _handleNotificationTap(AppNotification notification) {
+    if (notification.type == NotificationType.diseaseAlert) {
+      // Navigate to disease details
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            LocalizationHelper.isChichewa(context)
+                ? 'Kuwona zambiri za matenda...'
+                : 'Viewing disease details...',
+          ),
+        ),
+      );
+    } else if (notification.type == NotificationType.messageReceived) {
+      // Navigate to conversation
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            LocalizationHelper.isChichewa(context)
+                ? 'Kukugwira kanembo...'
+                : 'Opening conversation...',
+          ),
+        ),
+      );
+    }
+  }
+
+  void _showNotificationOptions(AppNotification notification) {
+    showModalBottomSheet(
+      context: context,
+      builder: (bottomSheetContext) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.check_circle),
+                title: Text(
+                  LocalizationHelper.isChichewa(context)
+                      ? 'Sungani ngati adawoneka'
+                      : 'Mark as read',
+                ),
+                onTap: () {
+                  Navigator.pop(bottomSheetContext);
+                  _notificationService.markAsRead(notification.id);
+                  _loadNotifications();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete, color: AppTheme.errorRed),
+                title: Text(
+                  LocalizationHelper.isChichewa(context) ? 'Fatsa' : 'Delete',
+                ),
+                onTap: () {
+                  Navigator.pop(bottomSheetContext);
+                  _notificationService.deleteNotification(notification.id);
+                  _loadNotifications();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showClearAllDialog(
+    BuildContext context,
+    bool isChichewa,
+    AppLocalizations? appLoc,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(isChichewa ? 'Kufafaniza Zonse?' : 'Clear All?'),
+          content: Text(
+            isChichewa
+                ? 'Kodi mukufuna kufafaniza mauthenga onse?'
+                : 'Are you sure you want to clear all notifications?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(isChichewa ? 'Ayi' : 'Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _notificationService.clearAll();
+                _loadNotifications();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.errorRed,
+              ),
+              child: Text(isChichewa ? 'Fafaniza' : 'Clear'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Color _getNotificationColor(NotificationType type) {
+    switch (type) {
+      case NotificationType.diseaseAlert:
+        return AppTheme.diseaseRed;
+      case NotificationType.messageReceived:
+        return AppTheme.primaryGreen;
+      case NotificationType.reportUpdate:
+        return AppTheme.warningAmber;
+      case NotificationType.systemAlert:
+        return AppTheme.accentOrange;
+      case NotificationType.locationAlert:
+        return Colors.blue;
+    }
+  }
+
+  IconData _getNotificationIcon(NotificationType type) {
+    switch (type) {
+      case NotificationType.diseaseAlert:
+        return Icons.warning_amber;
+      case NotificationType.messageReceived:
+        return Icons.message;
+      case NotificationType.reportUpdate:
+        return Icons.update;
+      case NotificationType.systemAlert:
+        return Icons.info;
+      case NotificationType.locationAlert:
+        return Icons.location_on;
+    }
+  }
+
+  String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    final difference = now.difference(time);
+
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    } else if (difference.inHours < 1) {
+      return '${difference.inMinutes}m ago';
+    } else if (difference.inDays < 1) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    } else {
+      return '${time.day}/${time.month}/${time.year}';
+    }
+  }
+}
+
+
+=== lib/features/settings/presentation/pages/settings_page.dart ===
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/pressable.dart';
+import '../bloc/settings_bloc.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../../../auth/presentation/bloc/auth_event.dart';
+
+class SettingsPage extends StatelessWidget {
+  const SettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final settingsState = context.watch<SettingsBloc>().state;
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
+        : true;
+
+    return Scaffold(
+      appBar: AppBar(title: Text(isChichewa ? 'Ma Settings' : 'Settings')),
+      body: BlocBuilder<SettingsBloc, SettingsState>(
+        builder: (context, state) {
+          final notificationsEnabled = state is SettingsLoaded
+              ? state.notificationsEnabled
+              : true;
+          final languageCode = state is SettingsLoaded
+              ? state.languageCode
+              : 'ny';
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _buildSectionTitle(isChichewa ? 'General' : 'General'),
+              const SizedBox(height: 8),
+              _buildSettingsCard([
+                _buildLanguageTile(context, languageCode, isChichewa),
+                const Divider(height: 1),
+                _buildNotificationTile(
+                  context,
+                  notificationsEnabled,
+                  isChichewa,
+                ),
+              ]),
+
+              const SizedBox(height: 24),
+              _buildSectionTitle(isChichewa ? 'Account' : 'Account'),
+              const SizedBox(height: 8),
+              _buildSettingsCard([
+                _buildTile(
+                  icon: Icons.person_outline,
+                  title: isChichewa ? 'Profile' : 'Profile',
+                  onTap: () {},
+                ),
+                const Divider(height: 1),
+                _buildTile(
+                  icon: Icons.lock_outline,
+                  title: isChichewa ? 'Change PIN' : 'Change PIN',
+                  onTap: () {},
+                ),
+              ]),
+
+              const SizedBox(height: 24),
+              _buildSectionTitle(isChichewa ? 'App' : 'App'),
+              const SizedBox(height: 8),
+              _buildSettingsCard([
+                _buildTile(
+                  icon: Icons.info_outline,
+                  title: isChichewa ? 'About' : 'About',
+                  onTap: () => _showAboutDialog(context, isChichewa),
+                ),
+                const Divider(height: 1),
+                _buildTile(
+                  icon: Icons.help_outline,
+                  title: isChichewa ? 'Help' : 'Help & Support',
+                  onTap: () {},
+                ),
+              ]),
+
+              const SizedBox(height: 24),
+              _buildSettingsCard([
+                _buildTile(
+                  icon: Icons.logout,
+                  title: isChichewa ? 'Tulukani' : 'Logout',
+                  iconColor: AppTheme.errorRed,
+                  textColor: AppTheme.errorRed,
+                  onTap: () => _showLogoutDialog(context, isChichewa),
+                ),
+              ]),
+
+              const SizedBox(height: 32),
+              Center(
+                child: Text('MbewuSmart v1.0.0', style: AppTextStyles.caption),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: AppTextStyles.bodySmall.copyWith(
+        fontWeight: FontWeight.w600,
+        color: AppTheme.textMuted,
+      ),
+    );
+  }
+
+  Widget _buildSettingsCard(List<Widget> children) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildLanguageTile(
+    BuildContext context,
+    String currentLanguage,
+    bool isChichewa,
+  ) {
+    return Pressable(
+      onTap: () => _showLanguageDialog(context, currentLanguage, isChichewa),
+      child: ListTile(
+        leading: const Icon(Icons.language),
+        title: Text(isChichewa ? 'Chilankhulo' : 'Language'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              currentLanguage == 'ny' ? 'Chichewa' : 'English',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppTheme.textMuted,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotificationTile(
+    BuildContext context,
+    bool enabled,
+    bool isChichewa,
+  ) {
+    return SwitchListTile(
+      secondary: const Icon(Icons.notifications_outlined),
+      title: Text(isChichewa ? 'Zizindikiro' : 'Notifications'),
+      value: enabled,
+      onChanged: (value) {
+        context.read<SettingsBloc>().add(SettingsNotificationsToggled(value));
+      },
+      activeThumbColor: AppTheme.primaryGreen,
+    );
+  }
+
+  Widget _buildTile({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    Color? iconColor,
+    Color? textColor,
+  }) {
+    return Pressable(
+      onTap: onTap,
+      child: ListTile(
+        leading: Icon(icon, color: iconColor),
+        title: Text(
+          title,
+          style: AppTextStyles.bodyMedium.copyWith(color: textColor),
+        ),
+        trailing: const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+
+  void _showLanguageDialog(
+    BuildContext context,
+    String currentLanguage,
+    bool isChichewa,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(isChichewa ? 'Sankha Chilankhulo' : 'Select Language'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: const Text('English'),
+                leading: Radio<String>(
+                  value: 'en',
+                  groupValue: currentLanguage,
+                  onChanged: (value) {
+                    context.read<SettingsBloc>().add(
+                      SettingsLanguageChanged(value!),
+                    );
+                    Navigator.pop(dialogContext);
+                  },
+                ),
+                onTap: () {
+                  context.read<SettingsBloc>().add(
+                    const SettingsLanguageChanged('en'),
+                  );
+                  Navigator.pop(dialogContext);
+                },
+              ),
+              ListTile(
+                title: const Text('Chichewa'),
+                leading: Radio<String>(
+                  value: 'ny',
+                  groupValue: currentLanguage,
+                  onChanged: (value) {
+                    context.read<SettingsBloc>().add(
+                      SettingsLanguageChanged(value!),
+                    );
+                    Navigator.pop(dialogContext);
+                  },
+                ),
+                onTap: () {
+                  context.read<SettingsBloc>().add(
+                    const SettingsLanguageChanged('ny'),
+                  );
+                  Navigator.pop(dialogContext);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showLogoutDialog(BuildContext context, bool isChichewa) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(isChichewa ? 'Mukufuna kutuluka?' : 'Logout?'),
+          content: Text(
+            isChichewa
+                ? 'Kodi mukuvomera kutuluka pa akaunti yanu?'
+                : 'Are you sure you want to logout?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(isChichewa ? 'Iai' : 'Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                context.read<AuthBloc>().add(AuthLogoutRequested());
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.errorRed,
+              ),
+              child: Text(isChichewa ? 'Tulukani' : 'Logout'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showAboutDialog(BuildContext context, bool isChichewa) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.eco, color: AppTheme.primaryGreen),
+              const SizedBox(width: 8),
+              const Text('MbewuSmart'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isChichewa
+                    ? 'MbewuSmart ndi pulojekiti yothandizira omwe akugwira ntchito m\'dziko la Malawi kuti awerenge matenda azizolongo, zinthu zokhotera, ndi zosowa za zakudya.'
+                    : 'MbewuSmart is a project to help farmers in Malawi detect crop diseases, pests, and nutrient deficiencies.',
+              ),
+              const SizedBox(height: 16),
+              const Text('Version 1.0.0'),
+              const SizedBox(height: 8),
+              Text(
+                isChichewa ? '© 2024 MbewuSmart' : '© 2024 MbewuSmart',
+                style: AppTextStyles.caption,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(isChichewa ? 'Uli' : 'OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+

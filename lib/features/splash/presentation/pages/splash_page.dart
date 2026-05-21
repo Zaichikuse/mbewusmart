@@ -9,6 +9,7 @@ import '../../../../shared/routes/app_routes.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
+import '../../../onboarding/data/onboarding_prefs.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -17,7 +18,8 @@ class SplashPage extends StatefulWidget {
   State<SplashPage> createState() => _SplashPageState();
 }
 
-class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateMixin {
+class _SplashPageState extends State<SplashPage>
+    with SingleTickerProviderStateMixin {
   static const String _languageSetupCompletedKey = 'language_setup_completed';
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -52,10 +54,10 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
   Future<void> _navigateToNextScreen() async {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    
+
     try {
       final authState = context.read<AuthBloc>().state;
-      
+
       if (authState.status == AuthStatus.authenticated) {
         try {
           context.go(AppRoutes.home);
@@ -63,9 +65,21 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
           Navigator.of(context).pushReplacementNamed(AppRoutes.home);
         }
       } else {
+        // If user hasn't seen onboarding yet, show it (only for unauthenticated users)
+        final hasSeenOnboarding = await OnboardingPrefs.hasSeenOnboarding();
+        if (!hasSeenOnboarding) {
+          try {
+            context.go(AppRoutes.onboarding);
+          } catch (e) {
+            Navigator.of(context).pushReplacementNamed(AppRoutes.onboarding);
+          }
+          return;
+        }
+
         final settingsBox = Hive.box(AppConstants.settingsBox);
         final hasCompletedLanguageSetup =
-            settingsBox.get(_languageSetupCompletedKey, defaultValue: false) as bool;
+            settingsBox.get(_languageSetupCompletedKey, defaultValue: false)
+                as bool;
 
         final nextRoute = hasCompletedLanguageSetup
             ? AppRoutes.login
@@ -104,7 +118,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
     } catch (e) {
       // Use default
     }
-    
+
     final isChichewa = languageCode == 'ny';
 
     return Scaffold(
@@ -124,10 +138,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
           builder: (context, child) {
             return FadeTransition(
               opacity: _fadeAnimation,
-              child: ScaleTransition(
-                scale: _scaleAnimation,
-                child: child,
-              ),
+              child: ScaleTransition(scale: _scaleAnimation, child: child),
             );
           },
           child: Column(
@@ -139,11 +150,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                   color: Colors.white.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.eco,
-                  size: 80,
-                  color: Colors.white,
-                ),
+                child: const Icon(Icons.eco, size: 80, color: Colors.white),
               ),
               const SizedBox(height: 24),
               const Text(
@@ -157,7 +164,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
               ),
               const SizedBox(height: 8),
               Text(
-                isChichewa 
+                isChichewa
                     ? 'Mau a Obulungi a Zipatso'
                     : 'Smart Crop Health Assistant',
                 style: TextStyle(

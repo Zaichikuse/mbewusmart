@@ -113,5 +113,44 @@
   "alerts": "Alerts",
   "weather": "Weather",
   "marketPrices": "Market Prices",
-  "reports": "Reports"
+  "reports": "Reports",
+  
+  "diseaseWatch": "Disease Watch",
+  "diseaseWatchTitle": "Disease Watch — {crop}",
+  "@diseaseWatchTitle": {
+    "placeholders": {
+      "crop": {
+        "type": "String"
+      }
+    }
+  },
+  "diseaseWatchSubtitle": "See what farmers across Malawi are reporting",
+  "scanMyNowBtn": "📷 Scan My Crop Now",
+  "monthlyReports": "{count} reports from farmers across Malawi this month",
+  "@monthlyReports": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noReportsYet": "No reports yet",
+  "noReportsEmptyState": "No reports yet in this category — be the first to scan and help other farmers in your area",
+  "categoryAll": "All",
+  "categoryPest": "Pests",
+  "categoryDisease": "Diseases",
+  "categoryDeficiency": "Deficiencies",
+  "treatmentAdvice": "Treatment & Prevention",
+  "reportCount": "{count} report",
+  "@reportCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "latestReport": "Latest Report",
+  "shareWithFarmers": "Share with other farmers",
+  "shareReportDescription": "District shown, your name stays private",
+  "privacyOptOut": "I do not want to share this report"
 }

@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../shared/widgets/pressable.dart';
 import '../../../../core/di/injection_container.dart' as di;
 import '../../../../core/services/ai_assistant_service.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
-import '../../../auth/domain/entities/user.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
 import '../../../diagnosis/domain/entities/diagnosis_result.dart';
@@ -47,11 +46,11 @@ class _HistoryPageState extends State<HistoryPage>
     _assistantService.setCurrentUiContext(
       safeInitialTab == 1 ? 'Reports' : 'History',
     );
-    final authState = context.read<AuthBloc>().state;
-    final user = authState.user;
-    final userId = user?.role == UserRole.agricultureManager ? null : user?.id;
+    // FIX: Pass null to load ALL local scans on this device.
+    // Since this phone belongs to one farmer, all scans on it are theirs.
+    // Filtering by userId was hiding scans where userId wasn't saved correctly.
     context.read<DiagnosisBloc>().add(
-      DiagnosisHistoryRequested(userId: userId),
+      const DiagnosisHistoryRequested(userId: null),
     );
   }
 
@@ -67,9 +66,7 @@ class _HistoryPageState extends State<HistoryPage>
     final isChichewa = settingsState is SettingsLoaded
         ? settingsState.languageCode == 'ny'
         : true;
-    final authState = context.read<AuthBloc>().state;
-    final user = authState.user;
-    final userId = user?.role == UserRole.agricultureManager ? null : user?.id;
+    const String? userId = null; // Show all local scans on this device
 
     return Scaffold(
       appBar: AppBar(
@@ -111,12 +108,8 @@ class _HistoryPageState extends State<HistoryPage>
 
           return RefreshIndicator(
             onRefresh: () async {
-              final authState = context.read<AuthBloc>().state;
-              final user = authState.user;
-              final userId =
-                  user?.role == UserRole.agricultureManager ? null : user?.id;
               context.read<DiagnosisBloc>().add(
-                DiagnosisHistoryRequested(userId: userId),
+                const DiagnosisHistoryRequested(userId: null),
               );
             },
             child: ListView.builder(
@@ -141,12 +134,11 @@ class _HistoryPageState extends State<HistoryPage>
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: () {
-                    final userId = context.read<AuthBloc>().state.user?.id;
                     context.read<DiagnosisBloc>().add(
-                      DiagnosisHistoryRequested(userId: userId),
+                      const DiagnosisHistoryRequested(userId: null),
                     );
                   },
-                  child: Text(isChichewa ? 'Jarani' : 'Retry'),
+                  child: Text(isChichewa ? 'Yeselaniso' : 'Retry'),
                 ),
               ],
             ),
@@ -510,11 +502,10 @@ class _HistoryPageState extends State<HistoryPage>
     final hasConversation = linkedMessages.isNotEmpty;
     final latestChat = hasConversation ? linkedMessages.last.text : null;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () => _showDetailDialog(result, isChichewa),
-        borderRadius: BorderRadius.circular(16),
+    return Pressable(
+      onTap: () => _showDetailDialog(result, isChichewa),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(

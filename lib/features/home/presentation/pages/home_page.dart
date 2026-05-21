@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_utils.dart';
 import '../../../../core/utils/localization_helper.dart';
 import '../../../../shared/widgets/empty_state.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
+import '../../../../shared/widgets/pressable.dart';
+import '../../../../shared/routes/app_routes.dart';
+import '../../../../shared/utils/time_ago.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
@@ -15,6 +20,7 @@ import '../../../location/presentation/bloc/location_bloc.dart';
 import '../../../scan/presentation/pages/scan_page.dart';
 import '../../../history/presentation/pages/history_page.dart';
 import '../../../location/presentation/pages/nearby_help_page.dart';
+import '../../../scan/presentation/widgets/crop_selector.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -62,8 +68,8 @@ class _HomePageState extends State<HomePage> {
           if (state is DiagnosisSuccess) {
             final userId = context.read<AuthBloc>().state.user?.id;
             context.read<DiagnosisBloc>().add(
-                  DiagnosisHistoryRequested(userId: userId),
-                );
+              DiagnosisHistoryRequested(userId: userId),
+            );
           }
         },
         child: SafeArea(
@@ -75,6 +81,8 @@ class _HomePageState extends State<HomePage> {
                 _buildGreetingCard(context, appLoc, isChichewa),
                 const SizedBox(height: 24),
                 _buildQuickActions(context, appLoc, isChichewa),
+                const SizedBox(height: 24),
+                _buildCropCards(context, isChichewa),
                 const SizedBox(height: 24),
                 _buildRecentDiagnoses(context, appLoc, isChichewa),
               ],
@@ -148,7 +156,7 @@ class _HomePageState extends State<HomePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          isChichewa ? 'Zochita Zapakati' : 'Quick Actions',
+          isChichewa ? 'Zochita Zachangu' : 'Quick Actions',
           style: AppTextStyles.headingSmall,
         ),
         const SizedBox(height: 12),
@@ -159,6 +167,7 @@ class _HomePageState extends State<HomePage> {
                 icon: Icons.camera_alt,
                 label: appLoc.scan,
                 color: AppTheme.primaryGreen,
+                pulse: true,
                 onTap: () {
                   Navigator.of(
                     context,
@@ -215,13 +224,24 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildCropCards(BuildContext context, bool isChichewa) {
+    return CropSelector(
+      title: isChichewa ? 'Sankhani Mbewu' : 'Browse by Crop',
+      selectedCrop: CropType.maize,
+      onCropSelected: (crop) {
+        context.go(AppRoutes.diseaseWatchPath(crop.name));
+      },
+    );
+  }
+
   Widget _buildActionCard({
     required IconData icon,
     required String label,
     required Color color,
     required VoidCallback onTap,
+    bool pulse = false,
   }) {
-    return GestureDetector(
+    final card = Pressable(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -252,6 +272,19 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+
+    if (!pulse) {
+      return card;
+    }
+
+    return card
+        .animate(onPlay: (controller) => controller.repeat(reverse: true))
+        .scaleXY(
+          begin: 1.0,
+          end: 1.03,
+          duration: 1400.ms,
+          curve: Curves.easeInOut,
+        );
   }
 
   Widget _buildRecentDiagnoses(
@@ -321,7 +354,7 @@ class _HomePageState extends State<HomePage> {
       child: EmptyState(
         title: isChichewa ? 'Palibe zopima mpaka pano' : 'No diagnoses yet',
         message: isChichewa
-            ? 'Pima mbewu yanu yoyamba!'
+            ? 'Pimani mbewu yanu yoyamba!'
             : 'Scan your first crop!',
         icon: Icons.eco_outlined,
       ),
@@ -368,10 +401,7 @@ class _HomePageState extends State<HomePage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              result.cropType.icon,
-              style: const TextStyle(fontSize: 36),
-            ),
+            Text(result.cropType.icon, style: const TextStyle(fontSize: 36)),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -401,7 +431,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    _formatDateDdMmYyyy(result.timestamp),
+                    timeAgoFromTimestamp(result.timestamp),
                     style: AppTextStyles.caption.copyWith(
                       color: AppTheme.textMuted,
                     ),
@@ -415,11 +445,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildSeverityBadge(
-    Severity severity,
-    Color color,
-    bool isChichewa,
-  ) {
+  Widget _buildSeverityBadge(Severity severity, Color color, bool isChichewa) {
     final label = _severityLabel(severity, isChichewa);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -442,7 +468,7 @@ class _HomePageState extends State<HomePage> {
   String _severityLabel(Severity severity, bool isChichewa) {
     switch (severity) {
       case Severity.low:
-        return isChichewa ? 'Wotsika' : 'Low';
+        return isChichewa ? 'yotsika' : 'Low';
       case Severity.medium:
         return isChichewa ? 'Pakati' : 'Medium';
       case Severity.high:
@@ -459,12 +485,5 @@ class _HomePageState extends State<HomePage> {
       case Severity.high:
         return AppTheme.diseaseRed;
     }
-  }
-
-  String _formatDateDdMmYyyy(DateTime date) {
-    final d = date.day.toString().padLeft(2, '0');
-    final m = date.month.toString().padLeft(2, '0');
-    final y = date.year.toString();
-    return '$d/$m/$y';
   }
 }

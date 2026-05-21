@@ -8,67 +8,76 @@ import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/home/presentation/pages/main_navigation_page.dart';
 import '../../features/splash/presentation/pages/splash_page.dart';
+import '../../features/onboarding/presentation/pages/onboarding_page.dart';
 import '../../features/welcome/presentation/pages/welcome_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/location/presentation/pages/nearby_help_page.dart';
 import '../../features/messaging/presentation/pages/conversations_page.dart';
 import '../../features/notifications/presentation/pages/notification_page.dart';
+import '../../features/disease_watch/presentation/pages/disease_watch_page.dart';
 import 'app_routes.dart';
 
 class AppRouter {
   static const String _languageSetupCompletedKey = 'language_setup_completed';
   final AuthBloc authBloc;
+  final String initialLocation;
 
-  AppRouter({required this.authBloc});
+  AppRouter({required this.authBloc, this.initialLocation = AppRoutes.splash});
 
   late final GoRouter router = GoRouter(
-    initialLocation: AppRoutes.splash,
+    initialLocation: initialLocation,
     debugLogDiagnostics: false,
     refreshListenable: GoRouterRefreshStream(authBloc.stream),
     redirect: (context, state) {
-  final authState = authBloc.state;
+      final authState = authBloc.state;
 
-  final isAuth = authState.status == AuthStatus.authenticated;
+      final isAuth = authState.status == AuthStatus.authenticated;
 
-  final isOnSplash = state.matchedLocation == AppRoutes.splash;
-  final isOnWelcome = state.matchedLocation == AppRoutes.welcome;
-  final isOnLogin = state.matchedLocation == AppRoutes.login;
+      final isOnSplash = state.matchedLocation == AppRoutes.splash;
+      final isOnOnboarding = state.matchedLocation == AppRoutes.onboarding;
+      final isOnWelcome = state.matchedLocation == AppRoutes.welcome;
+      final isOnLogin = state.matchedLocation == AppRoutes.login;
 
-  // Always allow splash
-  if (isOnSplash) {
-    return null;
-  }
+      // Always allow splash
+      if (isOnSplash || isOnOnboarding) {
+        return null;
+      }
 
-  final settingsBox = Hive.box(AppConstants.settingsBox);
-  final hasCompletedLanguageSetup =
-      settingsBox.get(_languageSetupCompletedKey, defaultValue: false) as bool;
-  final unauthLanding = hasCompletedLanguageSetup
-      ? AppRoutes.login
-      : AppRoutes.welcome;
+      final settingsBox = Hive.box(AppConstants.settingsBox);
+      final hasCompletedLanguageSetup =
+          settingsBox.get(_languageSetupCompletedKey, defaultValue: false)
+              as bool;
+      final unauthLanding = hasCompletedLanguageSetup
+          ? AppRoutes.login
+          : AppRoutes.welcome;
 
-  // If NOT logged in → stay on welcome/login ONLY
-  if (!isAuth) {
-    if (isOnWelcome && hasCompletedLanguageSetup) {
-      return AppRoutes.login;
-    }
+      // If NOT logged in → stay on welcome/login ONLY
+      if (!isAuth) {
+        if (isOnWelcome && hasCompletedLanguageSetup) {
+          return AppRoutes.login;
+        }
 
-    if (!isOnWelcome && !isOnLogin) {
-      return unauthLanding;
-    }
-    return null;
-  }
+        if (!isOnWelcome && !isOnLogin) {
+          return unauthLanding;
+        }
+        return null;
+      }
 
-  // If logged in → go to home
-  if (isAuth && (isOnWelcome || isOnLogin)) {
-    return AppRoutes.home;
-  }
+      // If logged in → go to home
+      if (isAuth && (isOnWelcome || isOnLogin)) {
+        return AppRoutes.home;
+      }
 
-  return null;
-},
+      return null;
+    },
     routes: [
       GoRoute(
         path: AppRoutes.splash,
         builder: (context, state) => const SplashPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.onboarding,
+        builder: (context, state) => const OnboardingPage(),
       ),
       GoRoute(
         path: AppRoutes.welcome,
@@ -85,6 +94,13 @@ class AppRouter {
       GoRoute(
         path: AppRoutes.scan,
         builder: (context, state) => const MainNavigationPage(initialIndex: 1),
+      ),
+      GoRoute(
+        path: '/disease-watch/:cropType',
+        builder: (context, state) {
+          final cropType = state.pathParameters['cropType'] ?? 'maize';
+          return DiseaseWatchPage(cropType: cropType);
+        },
       ),
       GoRoute(
         path: AppRoutes.history,

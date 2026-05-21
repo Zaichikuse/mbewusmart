@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import 'pressable.dart';
 
 class AppCard extends StatelessWidget {
   final Widget child;
@@ -53,8 +54,11 @@ class AppCard extends StatelessWidget {
         ),
       ),
     );
+    if (onTap == null) {
+      return card;
+    }
 
-    return card;
+    return Pressable(onTap: onTap!, child: card);
   }
 }
 
@@ -78,7 +82,7 @@ class AppGradientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final card = Container(
       margin: margin,
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -100,5 +104,11 @@ class AppGradientCard extends StatelessWidget {
         ),
       ),
     );
+
+    if (onTap == null) {
+      return card;
+    }
+
+    return Pressable(onTap: onTap!, child: card);
   }
 }

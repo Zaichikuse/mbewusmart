@@ -1,19 +1,10 @@
 import 'package:equatable/equatable.dart';
 import 'crop_type.dart';
+import 'diagnosis_category.dart';
 
-enum DiagnosisType {
-  healthy,
-  disease,
-  pest,
-  deficiency,
-  unknown,
-}
+enum DiagnosisType { healthy, disease, pest, deficiency, unknown }
 
-enum Severity {
-  low,
-  medium,
-  high,
-}
+enum Severity { low, medium, high }
 
 class DiagnosisResult extends Equatable {
   final String id;
@@ -28,7 +19,8 @@ class DiagnosisResult extends Equatable {
   final String? prevention;
   final DateTime timestamp;
   final String? userId;
-  
+  final DiagnosisCategory? category;
+
   // New fields
   final CropType cropType;
   final String? scientificName;
@@ -51,6 +43,7 @@ class DiagnosisResult extends Equatable {
     this.prevention,
     required this.timestamp,
     this.userId,
+    this.category,
     required this.cropType,
     this.scientificName,
     this.causingFactors,
@@ -74,6 +67,7 @@ class DiagnosisResult extends Equatable {
       'prevention': prevention,
       'timestamp': timestamp.toIso8601String(),
       'userId': userId,
+      'category': category?.name,
       'cropType': cropType.name,
       'scientificName': scientificName,
       'causingFactors': causingFactors,
@@ -104,6 +98,12 @@ class DiagnosisResult extends Equatable {
       prevention: map['prevention'],
       timestamp: DateTime.tryParse(map['timestamp'] ?? '') ?? DateTime.now(),
       userId: map['userId'],
+      category: map['category'] != null
+          ? DiagnosisCategory.values.firstWhere(
+              (e) => e.name == map['category'],
+              orElse: () => DiagnosisCategory.disease,
+            )
+          : null,
       cropType: CropType.values.firstWhere(
         (e) => e.name == map['cropType'],
         orElse: () => CropType.maize,
@@ -130,6 +130,7 @@ class DiagnosisResult extends Equatable {
     String? prevention,
     DateTime? timestamp,
     String? userId,
+    DiagnosisCategory? category,
     CropType? cropType,
     String? scientificName,
     String? causingFactors,
@@ -143,7 +144,8 @@ class DiagnosisResult extends Equatable {
       imagePath: imagePath ?? this.imagePath,
       type: type ?? this.type,
       diagnosisName: diagnosisName ?? this.diagnosisName,
-      diagnosisNameChichewa: diagnosisNameChichewa ?? this.diagnosisNameChichewa,
+      diagnosisNameChichewa:
+          diagnosisNameChichewa ?? this.diagnosisNameChichewa,
       confidence: confidence ?? this.confidence,
       severity: severity ?? this.severity,
       recommendation: recommendation ?? this.recommendation,
@@ -151,6 +153,7 @@ class DiagnosisResult extends Equatable {
       prevention: prevention ?? this.prevention,
       timestamp: timestamp ?? this.timestamp,
       userId: userId ?? this.userId,
+      category: category ?? this.category,
       cropType: cropType ?? this.cropType,
       scientificName: scientificName ?? this.scientificName,
       causingFactors: causingFactors ?? this.causingFactors,
@@ -163,26 +166,27 @@ class DiagnosisResult extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        imagePath,
-        type,
-        diagnosisName,
-        diagnosisNameChichewa,
-        confidence,
-        severity,
-        recommendation,
-        treatment,
-        prevention,
-        timestamp,
-        userId,
-        cropType,
-        scientificName,
-        causingFactors,
-        pesticideRemedy,
-        latitude,
-        longitude,
-        locationName,
-      ];
+    id,
+    imagePath,
+    type,
+    diagnosisName,
+    diagnosisNameChichewa,
+    confidence,
+    severity,
+    recommendation,
+    treatment,
+    prevention,
+    timestamp,
+    userId,
+    category,
+    cropType,
+    scientificName,
+    causingFactors,
+    pesticideRemedy,
+    latitude,
+    longitude,
+    locationName,
+  ];
 }
 
 extension DiagnosisTypeExtension on DiagnosisType {

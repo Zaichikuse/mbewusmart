@@ -2,11 +2,13 @@ import '../../../../core/services/report_share_service.dart';
 import '../../../../shared/widgets/share_report_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/farmer_messages.dart';
 import '../../../../core/di/injection_container.dart' as di;
+import '../../../../shared/routes/app_routes.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../diagnosis/domain/entities/diagnosis_result.dart';
 import '../../../diagnosis/domain/entities/crop_type.dart';
@@ -22,6 +24,7 @@ import '../../../alerts/presentation/bloc/alerts_bloc.dart';
 import '../../../alerts/domain/entities/alert.dart';
 import '../../../history/presentation/widgets/ai_assistant_tab.dart';
 import '../../../history/presentation/pages/history_page.dart';
+import '../widgets/crop_selector.dart';
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -35,11 +38,63 @@ class _ScanPageState extends State<ScanPage> {
   CropType _selectedCrop = CropType.maize;
   static const double confidenceThreshold = 0.70;
   late final ReportService _reportService = di.sl<ReportService>();
+  bool _isPublic = true; // Privacy: opt-out toggle for Disease Watch
+  bool _hasSavedReport = false; // Prevents duplicate saves per scan
+
+  /// Save the diagnosis to Firestore so it appears in Disease Watch
+  /// for all farmers. Respects the _isPublic opt-out toggle.
+  Future<void> _saveReportToFirestore(
+    DiagnosisSuccess state,
+    BuildContext context,
+  ) async {
+    if (_hasSavedReport) return; // Guard against duplicate saves
+    _hasSavedReport = true;
+
+    try {
+      final authState = context.read<AuthBloc>().state;
+      final locationState = context.read<LocationBloc>().state;
+
+      if (authState.user == null) {
+        debugPrint('[ScanPage] Cannot save report — user not authenticated');
+        return;
+      }
+
+      await _reportService.createReport(
+        diagnosis: state.result,
+        farmer: authState.user!,
+        location: locationState is LocationLoaded
+            ? locationState.location
+            : null,
+        nearestOfficer: locationState is LocationLoaded
+            ? locationState.nearestOfficer
+            : null,
+        isPublic: _isPublic,
+      );
+      debugPrint('[ScanPage] Report saved to Firestore (isPublic=$_isPublic)');
+    } catch (e) {
+      debugPrint('[ScanPage] Failed to save report: $e');
+      // Don't surface this to the user — the diagnosis still works locally
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     context.read<LocationBloc>().add(LocationGetCurrent());
+
+    // Pre-select crop if passed as query param (from Disease Watch "Scan My Crop Now")
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final uri = GoRouterState.of(context).uri;
+      final cropParam = uri.queryParameters['crop'];
+      if (cropParam != null) {
+        final matched = CropType.values.firstWhere(
+          (c) => c.name == cropParam,
+          orElse: () => CropType.maize,
+        );
+        if (mounted) setState(() => _selectedCrop = matched);
+      }
+    });
   }
 
   @override
@@ -56,6 +111,7 @@ class _ScanPageState extends State<ScanPage> {
       body: BlocListener<DiagnosisBloc, DiagnosisState>(
         listener: (context, state) {
           if (state is DiagnosisSuccess) {
+            _saveReportToFirestore(state, context);
             _showResultDialog(context, state, isChichewa);
           }
         },
@@ -76,70 +132,12 @@ class _ScanPageState extends State<ScanPage> {
   }
 
   Widget _buildCropSelector(bool isChichewa) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          isChichewa ? 'Sankha Mbewo' : 'Select Crop',
-          style: AppTextStyles.headingSmall,
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: CropType.values.map((crop) {
-            final isSelected = crop == _selectedCrop;
-            return Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _selectedCrop = crop;
-                  });
-                },
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: isSelected ? AppTheme.primaryGreen : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isSelected
-                          ? AppTheme.primaryGreen
-                          : Colors.grey.shade300,
-                      width: 2,
-                    ),
-                    boxShadow: isSelected
-                        ? [
-                            BoxShadow(
-                              color: AppTheme.primaryGreen.withValues(
-                                alpha: 0.3,
-                              ),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: Column(
-                    children: [
-                      Text(crop.icon, style: const TextStyle(fontSize: 32)),
-                      const SizedBox(height: 8),
-                      Text(
-                        isChichewa
-                            ? crop.displayNameChichewa
-                            : crop.displayName,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: isSelected ? Colors.white : AppTheme.textDark,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
+    return CropSelector(
+      title: isChichewa ? 'Sankha Mbewo' : 'Select Crop',
+      selectedCrop: _selectedCrop,
+      onCropSelected: (crop) {
+        context.go(AppRoutes.diseaseWatchPath(crop.name));
+      },
     );
   }
 
@@ -228,7 +226,7 @@ class _ScanPageState extends State<ScanPage> {
           child: OutlinedButton.icon(
             onPressed: () => _pickImage(ImageSource.gallery),
             icon: const Icon(Icons.photo_library),
-            label: Text(isChichewa ? 'Galasi' : 'Gallery'),
+            label: Text(isChichewa ? 'zithunzi za mu phone' : 'Gallery'),
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
             ),
@@ -276,13 +274,14 @@ class _ScanPageState extends State<ScanPage> {
 
   Future<void> _pickImage(ImageSource source) async {
     try {
+      _hasSavedReport = false; // Reset guard so this new scan can be saved
+
       final XFile? image = await _picker.pickImage(
         source: source,
         maxWidth: 1024,
         maxHeight: 1024,
         imageQuality: 85,
       );
-
       if (image != null && mounted) {
         // Read bytes immediately — fixes Android content URI bug
         final imageBytes = await image.readAsBytes();
@@ -499,6 +498,57 @@ class _ScanPageState extends State<ScanPage> {
                       ),
                     ),
                   ],
+
+                  // ============================================
+                  // PRIVACY: Share/Opt-out toggle for Disease Watch
+                  // ============================================
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryGreen.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppTheme.primaryGreen.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isChichewa
+                                    ? 'Ganizani ndi alimi ena'
+                                    : 'Share with other farmers',
+                                style: AppTextStyles.bodyMedium.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                isChichewa
+                                    ? 'Dera likuonedwa, dzina lanu silisiwe'
+                                    : 'District shown, your name stays private',
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: AppTheme.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _isPublic,
+                          onChanged: (value) {
+                            setState(() {
+                              _isPublic = value;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
 
                   // ============================================
                   // ALWAYS SHOW: Help section (both confidence levels)
@@ -816,6 +866,28 @@ class _ScanPageState extends State<ScanPage> {
                         ),
                       ),
                     ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(dialogContext);
+                        context.go(AppRoutes.home);
+                      },
+                      icon: const Icon(Icons.home_outlined),
+                      label: const Text('Back to Home'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF2E7D32),
+                        side: const BorderSide(
+                          color: Color(0xFF2E7D32),
+                          width: 2,
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -1362,6 +1434,7 @@ class _ScanPageState extends State<ScanPage> {
                   result: result,
                   isChichewa: isChichewa,
                   nearestOfficer: notifyOfficer,
+                  isPublic: _isPublic,
                 );
 
                 Navigator.pop(dialogContext);
@@ -1437,6 +1510,7 @@ class _ScanPageState extends State<ScanPage> {
     required DiagnosisResult result,
     required bool isChichewa,
     ExtensionOfficer? nearestOfficer,
+    bool isPublic = true,
   }) async {
     final authState = context.read<AuthBloc>().state;
     if (authState.status != AuthStatus.authenticated ||
@@ -1464,6 +1538,7 @@ class _ScanPageState extends State<ScanPage> {
         farmer: authState.user!,
         location: location,
         nearestOfficer: nearestOfficer,
+        isPublic: isPublic,
       );
 
       if (mounted) {

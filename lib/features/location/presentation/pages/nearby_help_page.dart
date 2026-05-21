@@ -62,7 +62,7 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isChichewa ? 'Thandizo Langa' : 'Nearby Help'),
+        title: Text(isChichewa ? 'Thandizo Lapafupi' : 'Nearby Help'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -128,7 +128,7 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
               const Icon(Icons.location_on, color: Colors.white, size: 28),
               const SizedBox(width: 8),
               Text(
-                isChichewa ? 'Othandizira Pafupi' : 'Help Near You',
+                isChichewa ? 'Thandizo la Pafupi' : 'Help Near You',
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -140,7 +140,7 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
           const SizedBox(height: 8),
           Text(
             isChichewa
-                ? 'Funsani anthu amathandizo pafupi ndi inu'
+                ? 'Pezani ma extension officers ndi agro-dealers omwe ali pafupi nanu'
                 : 'Find extension officers and agro-dealers near you',
             style: const TextStyle(fontSize: 14, color: Colors.white70),
           ),
@@ -157,7 +157,7 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
           const Center(child: CircularProgressIndicator()),
           const SizedBox(height: 16),
           Text(
-            isChichewa ? 'Tikupezani malo anu...' : 'Finding your location...',
+            isChichewa ? 'Tikufufuza malo anu...' : 'Finding your location...',
             style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
           ),
           const SizedBox(height: 16),
@@ -224,7 +224,7 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
                 });
               },
               icon: const Icon(Icons.refresh, size: 18),
-              label: Text(isChichewa ? 'Sinthani' : 'Refresh'),
+              label: Text(isChichewa ? 'Refresh' : 'Refresh'),
             ),
           ],
         ),
@@ -444,7 +444,7 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
                   child: ElevatedButton.icon(
                     onPressed: () => _makePhoneCall(officer.phone),
                     icon: const Icon(Icons.phone, size: 18),
-                    label: Text(isChichewa ? 'Lowa Fono' : 'Call'),
+                    label: Text(isChichewa ? 'Imbani' : 'Call'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primaryGreen,
                       foregroundColor: Colors.white,
@@ -574,7 +574,7 @@ class _NearbyHelpPageState extends State<NearbyHelpPage> {
                   child: ElevatedButton.icon(
                     onPressed: () => _makePhoneCall(dealer.phone),
                     icon: const Icon(Icons.phone, size: 18),
-                    label: Text(isChichewa ? 'Lowa Fono' : 'Call'),
+                    label: Text(isChichewa ? 'Imbani' : 'Call'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.accentOrange,
                       foregroundColor: Colors.white,

@@ -2,6 +2,7 @@ abstract class AppRoutes {
   static const String splash = '/';
   static const String welcome = '/welcome';
   static const String login = '/login';
+  static const String onboarding = '/onboarding';
   static const String home = '/home';
   static const String scan = '/scan';
   static const String history = '/history';
@@ -10,11 +11,14 @@ abstract class AppRoutes {
   static const String officerDashboard = '/officer-dashboard';
   static const String managerDashboard = '/manager-dashboard';
   static const String dealerDashboard = '/dealer-dashboard';
-  
+
   // Messaging Routes
   static const String conversations = '/conversations';
   static const String chat = '/chat';
-  
+
   // Notification Routes
   static const String notifications = '/notifications';
+
+  // Disease Watch Routes
+  static String diseaseWatchPath(String cropType) => '/disease-watch/$cropType';
 }

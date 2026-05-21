@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/pressable.dart';
 
 class ScanArea extends StatelessWidget {
   final String? imagePath;
@@ -19,25 +20,23 @@ class ScanArea extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: isAnalyzing ? null : onTap,
+    return Pressable(
+      haptic: !isAnalyzing,
+      onTap: isAnalyzing ? () {} : onTap,
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: Colors.grey.shade300,
-            width: 2,
-          ),
+          border: Border.all(color: Colors.grey.shade300, width: 2),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(14),
           child: isAnalyzing
               ? _buildAnalyzingState()
               : imagePath != null
-                  ? _buildImagePreview()
-                  : _buildPlaceholder(),
+              ? _buildImagePreview()
+              : _buildPlaceholder(),
         ),
       ),
     );
@@ -60,10 +59,7 @@ class ScanArea extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        Text(
-          cropIcon,
-          style: const TextStyle(fontSize: 40),
-        ),
+        Text(cropIcon, style: const TextStyle(fontSize: 40)),
         const SizedBox(height: 8),
         Text(
           cropName,
@@ -76,10 +72,7 @@ class ScanArea extends StatelessWidget {
         const SizedBox(height: 16),
         const Text(
           'Tap to scan your crop',
-          style: TextStyle(
-            fontSize: 14,
-            color: AppTheme.textMuted,
-          ),
+          style: TextStyle(fontSize: 14, color: AppTheme.textMuted),
         ),
       ],
     );
@@ -90,11 +83,7 @@ class ScanArea extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         const Center(
-          child: Icon(
-            Icons.image,
-            size: 64,
-            color: AppTheme.textMuted,
-          ),
+          child: Icon(Icons.image, size: 64, color: AppTheme.textMuted),
         ),
         Positioned(
           bottom: 16,
@@ -105,11 +94,7 @@ class ScanArea extends StatelessWidget {
               color: AppTheme.primaryGreen,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
-              Icons.edit,
-              color: Colors.white,
-              size: 20,
-            ),
+            child: const Icon(Icons.edit, color: Colors.white, size: 20),
           ),
         ),
       ],
@@ -124,10 +109,7 @@ class ScanArea extends StatelessWidget {
           valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryGreen),
         ),
         const SizedBox(height: 24),
-        Text(
-          cropIcon,
-          style: const TextStyle(fontSize: 40),
-        ),
+        Text(cropIcon, style: const TextStyle(fontSize: 40)),
         const SizedBox(height: 16),
         const Text(
           'Analyzing...',
@@ -140,10 +122,7 @@ class ScanArea extends StatelessWidget {
         const SizedBox(height: 8),
         const Text(
           'Please wait while we check your crop',
-          style: TextStyle(
-            fontSize: 14,
-            color: AppTheme.textMuted,
-          ),
+          style: TextStyle(fontSize: 14, color: AppTheme.textMuted),
           textAlign: TextAlign.center,
         ),
       ],

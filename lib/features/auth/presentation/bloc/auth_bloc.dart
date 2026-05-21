@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../data/datasources/auth_local_datasource.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/usecases/get_current_user_usecase.dart';
 import '../../domain/usecases/login_usecase.dart';
@@ -17,6 +18,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final LogoutUseCase logoutUseCase;
   final GetCurrentUserUseCase getCurrentUserUseCase;
   final UserDirectoryService userDirectoryService;
+  final AuthLocalDataSource localDataSource;
 
   AuthBloc({
     required this.loginUseCase,
@@ -24,12 +26,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     required this.logoutUseCase,
     required this.getCurrentUserUseCase,
     required this.userDirectoryService,
+    required this.localDataSource,
   }) : super(const AuthState()) {
     on<AuthCheckRequested>(_onCheckRequested);
     on<AuthLoginRequested>(_onLoginRequested);
     on<AuthRegisterRequested>(_onRegisterRequested);
     on<AuthLogoutRequested>(_onLogoutRequested);
     on<AuthUserChanged>(_onUserChanged);
+    on<AuthChangePinRequested>(_onChangePinRequested);
   }
 
   Future<void> _onCheckRequested(
@@ -156,6 +160,61 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           status: AuthStatus.unauthenticated,
           clearUser: true,
           clearErrorMessage: true,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onChangePinRequested(
+    AuthChangePinRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    final currentUser = state.user;
+    if (currentUser == null) {
+      emit(
+        state.copyWith(status: AuthStatus.error, errorMessage: 'Not logged in'),
+      );
+      return;
+    }
+
+    // Verify the current PIN matches
+    if (currentUser.pin != event.currentPin) {
+      emit(
+        state.copyWith(
+          status: AuthStatus.error,
+          errorMessage: 'Current PIN is incorrect',
+        ),
+      );
+      // Reset back to authenticated so the user can try again
+      await Future.delayed(const Duration(milliseconds: 100));
+      emit(
+        state.copyWith(
+          status: AuthStatus.authenticated,
+          clearErrorMessage: true,
+        ),
+      );
+      return;
+    }
+
+    try {
+      // Update the PIN and save through the local data source (Hive)
+      final updatedUser = currentUser.copyWith(pin: event.newPin);
+      await localDataSource.saveUser(updatedUser);
+
+      emit(
+        state.copyWith(
+          status: AuthStatus.authenticated,
+          user: updatedUser,
+          clearErrorMessage: true,
+        ),
+      );
+
+      unawaited(_syncUser(updatedUser, 'pin change'));
+    } catch (e) {
+      emit(
+        state.copyWith(
+          status: AuthStatus.error,
+          errorMessage: 'Failed to change PIN: $e',
         ),
       );
     }

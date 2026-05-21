@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/di/injection_container.dart' as di;
@@ -9,7 +9,7 @@ import '../../../reports/domain/entities/diagnosis_report.dart';
 import '../../../../core/services/report_share_service.dart';
 import '../../../../shared/widgets/share_report_button.dart';
 
-// Kept for backward compatibility — dashboard still passes this enum,
+// Kept for backward compatibility â€” dashboard still passes this enum,
 // but we no longer filter by status (diagnoses are historical records).
 enum ManagerReportsFilter { allDiagnoses, pendingOnly, reviewedOnly }
 
@@ -168,7 +168,7 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
         r.farmerPhone,
         r.cropType,
         r.diagnosisName,
-        r.district ?? '',
+        r.district,
         r.placeName ?? '',
       ].join(' ').toLowerCase();
       return haystack.contains(q);
@@ -433,7 +433,7 @@ class _DiagnosisTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 2),
-            Text('${report.cropType} • ${report.diagnosisName}'),
+            Text('${report.cropType} â€¢ ${report.diagnosisName}'),
             if ((report.district ?? '').trim().isNotEmpty) ...[
               const SizedBox(height: 2),
               Row(

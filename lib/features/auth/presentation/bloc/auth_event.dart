@@ -14,10 +14,7 @@ class AuthLoginRequested extends AuthEvent {
   final String phoneNumber;
   final String? pin;
 
-  const AuthLoginRequested({
-    required this.phoneNumber,
-    this.pin,
-  });
+  const AuthLoginRequested({required this.phoneNumber, this.pin});
 
   @override
   List<Object?> get props => [phoneNumber, pin];
@@ -43,6 +40,19 @@ class AuthRegisterRequested extends AuthEvent {
 }
 
 class AuthLogoutRequested extends AuthEvent {}
+
+class AuthChangePinRequested extends AuthEvent {
+  final String currentPin;
+  final String newPin;
+
+  const AuthChangePinRequested({
+    required this.currentPin,
+    required this.newPin,
+  });
+
+  @override
+  List<Object?> get props => [currentPin, newPin];
+}
 
 class AuthUserChanged extends AuthEvent {
   final User? user;

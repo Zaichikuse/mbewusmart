@@ -1,0 +1,3766 @@
+=== lib/features/reports/data/services/report_service.dart ===
+import 'dart:io';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
+
+import '../../../../core/services/diagnosis_category_cache.dart';
+import '../../../../core/services/fcm_notification_service.dart';
+import '../../../../core/services/user_directory_service.dart';
+import '../../../../shared/utils/image_encoder.dart';
+import '../../../auth/domain/entities/user.dart';
+import '../../../diagnosis/domain/entities/diagnosis_result.dart';
+import '../../../location/domain/entities/extension_officer.dart';
+import '../../../location/domain/entities/location_info.dart';
+import '../../domain/entities/diagnosis_report.dart';
+
+class ReportService {
+  ReportService({
+    FirebaseFirestore? firestore,
+    UserDirectoryService? userDirectoryService,
+    FcmNotificationService? fcmNotificationService,
+  }) : _firestore = firestore,
+       _userDirectoryService = userDirectoryService ?? UserDirectoryService(),
+       _fcmNotificationService =
+           fcmNotificationService ?? FcmNotificationService();
+
+  final FirebaseFirestore? _firestore;
+  final UserDirectoryService _userDirectoryService;
+  final FcmNotificationService _fcmNotificationService;
+
+  FirebaseFirestore? get _db {
+    if (_firestore != null) return _firestore;
+    if (Firebase.apps.isEmpty) return null;
+    return FirebaseFirestore.instance;
+  }
+
+  Stream<List<DiagnosisReport>> watchReportsForOfficer(String officerId) {
+    final db = _db;
+    if (db == null) return Stream.value(const []);
+    return db
+        .collection('reports')
+        .where('extensionOfficerId', isEqualTo: officerId)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => DiagnosisReport.fromMap(doc.data()))
+              .toList(),
+        );
+  }
+
+  Stream<List<DiagnosisReport>> watchAllReports() {
+    final db = _db;
+    if (db == null) return Stream.value(const []);
+    return db
+        .collection('reports')
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => DiagnosisReport.fromMap(doc.data()))
+              .toList(),
+        );
+  }
+
+  Future<DiagnosisReport> createReport({
+    required DiagnosisResult diagnosis,
+    required User farmer,
+    required LocationInfo? location,
+    ExtensionOfficer? nearestOfficer,
+    bool isPublic = true,
+  }) async {
+    final db = _db;
+    if (db == null) {
+      throw Exception('Firebase is not initialized.');
+    }
+
+    final user = fb_auth.FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('Sign in first.');
+
+    final doc = db.collection('reports').doc();
+
+    String? photoBase64;
+    try {
+      final imageBytes = await _readScanImageBytes(diagnosis.imagePath);
+      photoBase64 = await ImageEncoder.encodeForFirestore(imageBytes);
+      debugPrint(
+        '[ReportService] Encoded photo size: ${photoBase64.length} chars (~${(photoBase64.length * 0.75 / 1024).toStringAsFixed(0)} KB)',
+      );
+    } catch (e) {
+      debugPrint('[ReportService] Photo encoding failed: $e');
+    }
+
+    final crop = diagnosis.cropType.name;
+    final farmerRegion = location?.district ?? farmer.district ?? 'Unknown';
+    final treatmentText = diagnosis.treatment ?? diagnosis.recommendation ?? '';
+    final preventionText = diagnosis.prevention ?? '';
+    final reportData = {
+      'crop': crop.toLowerCase(),
+      'diagnosis': diagnosis.diagnosisName,
+      'diagnosis_chichewa': diagnosis.diagnosisNameChichewa,
+      'diagnosis_type': diagnosis.type.name,
+      'severity': diagnosis.severity.name,
+      'confidence': diagnosis.confidence,
+      'symptoms': diagnosis.causingFactors ?? diagnosis.recommendation ?? '',
+      'causing_factors': diagnosis.causingFactors ?? '',
+      'treatment': treatmentText,
+      'prevention': preventionText,
+      'photo_base64': photoBase64,
+      'region': farmerRegion,
+      'farmer_id': user.uid,
+      'farmer_name': user.displayName ?? 'Unknown',
+      'created_at': FieldValue.serverTimestamp(),
+      'extensionOfficerId': nearestOfficer?.id,
+      'latitude': location?.latitude ?? diagnosis.latitude,
+      'longitude': location?.longitude ?? diagnosis.longitude,
+      'placeName': location?.placeName ?? diagnosis.locationName,
+      'notes': [
+        if (treatmentText.trim().isNotEmpty)
+          'Treatment: ${treatmentText.trim()}',
+        if (preventionText.trim().isNotEmpty)
+          'Prevention: ${preventionText.trim()}',
+      ].join('\n'),
+      'photo_url': null,
+      'isPublic': isPublic,
+    };
+
+    await doc.set(reportData);
+    await _notifyReportTargets(diagnosis, user, nearestOfficer, farmerRegion);
+    return DiagnosisReport(
+      id: doc.id,
+      farmerId: user.uid,
+      farmerName: user.displayName ?? 'Unknown',
+      farmerPhone: farmer.phoneNumber,
+      cropType: crop,
+      diagnosisName: diagnosis.diagnosisName,
+      confidence: diagnosis.confidence,
+      latitude: location?.latitude ?? diagnosis.latitude,
+      longitude: location?.longitude ?? diagnosis.longitude,
+      placeName: location?.placeName ?? diagnosis.locationName,
+      district: farmerRegion,
+      imagePath: diagnosis.imagePath,
+      photoBase64: photoBase64,
+      photoUrl: null,
+      treatment: treatmentText,
+      prevention: preventionText,
+      timestamp: DateTime.now(),
+      status: 'pending',
+      extensionOfficerId: nearestOfficer?.id,
+      notes: reportData['notes'] as String,
+      isPublic: isPublic,
+    );
+  }
+
+  Future<Uint8List> _readScanImageBytes(String localPath) async {
+    return File(localPath).readAsBytes();
+  }
+
+  Future<void> updateReportNotes({
+    required String reportId,
+    required String notes,
+  }) async {
+    final db = _db;
+    if (db == null) return;
+    await db.collection('reports').doc(reportId).update({
+      'notes': notes,
+      'status': 'reviewed',
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// Update the is_public flag for a report.
+  /// When set to false, the report will NOT appear in Disease Watch
+  /// but will still be visible to the Agriculture Manager.
+  Future<void> updateReportPublicStatus({
+    required String reportId,
+    required bool isPublic,
+  }) async {
+    final db = _db;
+    if (db == null) return;
+    await db.collection('reports').doc(reportId).update({
+      'isPublic': isPublic,
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// Get the category for a diagnosis name (with caching).
+  /// Queries the diagnosis_categories Firestore collection.
+  /// Falls back to 'disease' if not found.
+  Future<String> getDiagnosisCategory(String diagnosisName) async {
+    final cache = DiagnosisCategoryCache();
+
+    final cached = cache.get(diagnosisName);
+    if (cached != null) {
+      return cached;
+    }
+
+    final db = _db;
+    if (db == null) return 'disease';
+
+    try {
+      final doc = await db
+          .collection('diagnosis_categories')
+          .doc(diagnosisName)
+          .get();
+
+      final category = doc.data()?['category'] as String? ?? 'disease';
+      cache.set(diagnosisName, category);
+      return category;
+    } catch (e) {
+      debugPrint('[ReportService] Error fetching category: $e');
+      return 'disease';
+    }
+  }
+
+  Future<void> _notifyReportTargets(
+    DiagnosisResult diagnosis,
+    fb_auth.User farmerUser,
+    ExtensionOfficer? nearestOfficer,
+    String farmerRegion,
+  ) async {
+    final managerTokens = await _userDirectoryService.getTokensByRole(
+      UserRole.agricultureManager,
+    );
+    final officerToken = await _userDirectoryService.getNearestOfficerToken(
+      officerId: nearestOfficer?.id,
+      district: farmerRegion,
+    );
+
+    final tokens = <String>{...managerTokens};
+    if (officerToken != null && officerToken.trim().isNotEmpty) {
+      tokens.add(officerToken);
+    }
+
+    if (tokens.isEmpty) return;
+
+    await _fcmNotificationService.sendToTokens(
+      tokens: tokens.toList(),
+      title: 'New Crop Report',
+      body:
+          '${farmerUser.displayName ?? 'Unknown'}: ${diagnosis.diagnosisName} (${(diagnosis.confidence * 100).toStringAsFixed(0)}%)',
+      data: {
+        'diagnosisName': diagnosis.diagnosisName,
+        'confidence': diagnosis.confidence,
+        'status': 'pending',
+      },
+    );
+  }
+}
+
+
+=== lib/features/scan/presentation/pages/scan_page.dart ===
+import '../../../../core/services/report_share_service.dart';
+import '../../../../shared/widgets/share_report_button.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/farmer_messages.dart';
+import '../../../../core/di/injection_container.dart' as di;
+import '../../../../shared/routes/app_routes.dart';
+import '../../../settings/presentation/bloc/settings_bloc.dart';
+import '../../../diagnosis/domain/entities/diagnosis_result.dart';
+import '../../../diagnosis/domain/entities/crop_type.dart';
+import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
+import '../../../location/presentation/bloc/location_bloc.dart';
+import '../../../location/domain/entities/extension_officer.dart';
+import '../../../location/domain/entities/agro_dealer.dart';
+import '../../../reports/data/services/report_service.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../../../auth/presentation/bloc/auth_state.dart'
+    show AuthState, AuthStatus;
+import '../../../alerts/presentation/bloc/alerts_bloc.dart';
+import '../../../alerts/domain/entities/alert.dart';
+import '../../../history/presentation/widgets/ai_assistant_tab.dart';
+import '../../../history/presentation/pages/history_page.dart';
+import '../widgets/crop_selector.dart';
+
+class ScanPage extends StatefulWidget {
+  const ScanPage({super.key});
+
+  @override
+  State<ScanPage> createState() => _ScanPageState();
+}
+
+class _ScanPageState extends State<ScanPage> {
+  final ImagePicker _picker = ImagePicker();
+  CropType _selectedCrop = CropType.maize;
+  static const double confidenceThreshold = 0.70;
+  late final ReportService _reportService = di.sl<ReportService>();
+  bool _isPublic = true; // Privacy: opt-out toggle for Disease Watch
+  bool _hasSavedReport = false; // Prevents duplicate saves per scan
+
+  /// Save the diagnosis to Firestore so it appears in Disease Watch
+  /// for all farmers. Respects the _isPublic opt-out toggle.
+  Future<void> _saveReportToFirestore(
+    DiagnosisSuccess state,
+    BuildContext context,
+  ) async {
+    if (_hasSavedReport) return; // Guard against duplicate saves
+    _hasSavedReport = true;
+
+    try {
+      final authState = context.read<AuthBloc>().state;
+      final locationState = context.read<LocationBloc>().state;
+
+      if (authState.user == null) {
+        debugPrint('[ScanPage] Cannot save report — user not authenticated');
+        return;
+      }
+
+      await _reportService.createReport(
+        diagnosis: state.result,
+        farmer: authState.user!,
+        location: locationState is LocationLoaded
+            ? locationState.location
+            : null,
+        nearestOfficer: locationState is LocationLoaded
+            ? locationState.nearestOfficer
+            : null,
+        isPublic: _isPublic,
+      );
+      debugPrint('[ScanPage] Report saved to Firestore (isPublic=$_isPublic)');
+    } catch (e) {
+      debugPrint('[ScanPage] Failed to save report: $e');
+      // Don't surface this to the user — the diagnosis still works locally
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<LocationBloc>().add(LocationGetCurrent());
+
+    // Pre-select crop if passed as query param (from Disease Watch "Scan My Crop Now")
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final uri = GoRouterState.of(context).uri;
+      final cropParam = uri.queryParameters['crop'];
+      if (cropParam != null) {
+        final matched = CropType.values.firstWhere(
+          (c) => c.name == cropParam,
+          orElse: () => CropType.maize,
+        );
+        if (mounted) setState(() => _selectedCrop = matched);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settingsState = context.watch<SettingsBloc>().state;
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
+        : true;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(isChichewa ? 'kupeza vuto la mbewu' : 'Scan Crop'),
+      ),
+      body: BlocListener<DiagnosisBloc, DiagnosisState>(
+        listener: (context, state) {
+          if (state is DiagnosisSuccess) {
+            _saveReportToFirestore(state, context);
+            _showResultDialog(context, state, isChichewa);
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              _buildCropSelector(isChichewa),
+              const SizedBox(height: 16),
+              Expanded(child: _buildScanArea(context, isChichewa)),
+              const SizedBox(height: 16),
+              _buildActionButtons(context, isChichewa),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCropSelector(bool isChichewa) {
+    return CropSelector(
+      title: isChichewa ? 'Sankha Mbewo' : 'Select Crop',
+      selectedCrop: _selectedCrop,
+      onCropSelected: (crop) {
+        context.go(AppRoutes.diseaseWatchPath(crop.name));
+      },
+    );
+  }
+
+  Widget _buildScanArea(BuildContext context, bool isChichewa) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppTheme.primaryGreen.withValues(alpha: 0.3),
+          width: 2,
+        ),
+      ),
+      child: BlocBuilder<DiagnosisBloc, DiagnosisState>(
+        builder: (context, state) {
+          if (state is DiagnosisAnalyzing) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(
+                    isChichewa ? 'Kupima...' : 'Analyzing...',
+                    style: AppTextStyles.bodyLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    isChichewa ? 'Tsimikizire' : 'Please wait',
+                    style: AppTextStyles.bodySmall,
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.camera_alt_outlined,
+                size: 80,
+                color: AppTheme.primaryGreen.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                isChichewa
+                    ? 'Tchani chithunzi cha ${_selectedCrop.displayNameChichewa.toLowerCase()}'
+                    : 'Take a photo of your ${_selectedCrop.displayName.toLowerCase()}',
+                style: AppTextStyles.bodyLarge.copyWith(
+                  color: AppTheme.textMuted,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isChichewa
+                    ? 'Chithunzi chiyambe pamenenso'
+                    : 'The image should be clear and well-lit',
+                style: AppTextStyles.bodySmall,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildActionButtons(BuildContext context, bool isChichewa) {
+    return Row(
+      children: [
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: () => _pickImage(ImageSource.camera),
+            icon: const Icon(Icons.camera_alt),
+            label: Text(isChichewa ? 'Kamera' : 'Camera'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => _pickImage(ImageSource.gallery),
+            icon: const Icon(Icons.photo_library),
+            label: Text(isChichewa ? 'zithunzi za mu phone' : 'Gallery'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMessageActionButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Icon(Icons.chevron_right, color: color),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      _hasSavedReport = false; // Reset guard so this new scan can be saved
+
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (image != null && mounted) {
+        // Read bytes immediately — fixes Android content URI bug
+        final imageBytes = await image.readAsBytes();
+
+        await Future.delayed(const Duration(seconds: 3));
+
+        if (!mounted) return;
+
+        context.read<LocationBloc>().add(LocationGetCurrent());
+        final authState = context.read<AuthBloc>().state;
+
+        context.read<DiagnosisBloc>().add(
+          DiagnosisAnalyzeRequested(
+            image.path,
+            imageBytes: imageBytes,
+            cropType: _selectedCrop,
+            userId: authState.user?.id,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
+      }
+    }
+  }
+
+  void _showResultDialog(
+    BuildContext context,
+    DiagnosisSuccess state,
+    bool isChichewa,
+  ) {
+    final result = state.result;
+    final locationState = context.read<LocationBloc>().state;
+    final authState = context.read<AuthBloc>().state;
+
+    String locationText = '';
+    String? district;
+    if (locationState is LocationLoaded) {
+      locationText = locationState.location.placeName ?? '';
+      district = locationState.location.district;
+      if (locationText.isNotEmpty && district != null) {
+        locationText += ', $district';
+      } else if (district != null) {
+        locationText = district;
+      }
+    }
+
+    final bool isHighConfidence = result.confidence >= confidenceThreshold;
+    ExtensionOfficer? nearestOfficer;
+    AgroDealer? nearestDealer;
+
+    if (locationState is LocationLoaded) {
+      nearestOfficer = locationState.nearestOfficer;
+      nearestDealer = locationState.nearestDealer;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.85,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Confidence Badge
+                  _buildConfidenceBadge(
+                    result.confidence,
+                    isHighConfidence,
+                    isChichewa,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Crop and Diagnosis Name
+                  Row(
+                    children: [
+                      Text(
+                        result.cropType.icon,
+                        style: const TextStyle(fontSize: 40),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isChichewa
+                                  ? result.cropType.displayNameChichewa
+                                  : result.cropType.displayName,
+                              style: AppTextStyles.bodyMedium.copyWith(
+                                color: AppTheme.textMuted,
+                              ),
+                            ),
+                            Text(
+                              result.diagnosisName,
+                              style: AppTextStyles.headingMedium,
+                            ),
+                            Text(
+                              result.diagnosisNameChichewa,
+                              style: AppTextStyles.bodyMedium.copyWith(
+                                color: AppTheme.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Type chip
+                  _buildInfoChip(
+                    isChichewa
+                        ? result.type.displayNameChichewa
+                        : result.type.displayName,
+                    _getSeverityColor(result.severity),
+                  ),
+
+                  // HIGH CONFIDENCE: Show treatment info
+                  if (isHighConfidence) ...[
+                    const SizedBox(height: 20),
+
+                    // Scientific Name
+                    _buildDetailSection(
+                      isChichewa ? 'Dzina la sayantifiki' : 'Scientific Name',
+                      _resolveDetailText(result.scientificName, isChichewa),
+                      isChichewa,
+                      Icons.science,
+                    ),
+
+                    // Causing Factors
+                    _buildDetailSection(
+                      isChichewa ? 'Zoyambitsa' : 'Causing Factors',
+                      _resolveDetailText(result.causingFactors, isChichewa),
+                      isChichewa,
+                      Icons.warning_amber,
+                    ),
+
+                    // Treatment
+                    _buildDetailSection(
+                      isChichewa ? 'Mankhwala' : 'Treatment',
+                      _resolveDetailText(result.treatment, isChichewa),
+                      isChichewa,
+                      Icons.healing,
+                    ),
+
+                    // Pesticide/Remedy
+                    _buildDetailSection(
+                      isChichewa ? 'Mankhwala' : 'Pesticide/Remedy',
+                      _resolveDetailText(result.pesticideRemedy, isChichewa),
+                      isChichewa,
+                      Icons.medication,
+                    ),
+
+                    // Prevention
+                    _buildDetailSection(
+                      isChichewa ? 'Kapeweredwe' : 'Prevention',
+                      _resolveDetailText(result.prevention, isChichewa),
+                      isChichewa,
+                      Icons.shield,
+                    ),
+                  ] else ...[
+                    // LOW CONFIDENCE: Warning message only
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.warningAmber.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.warningAmber),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.warning_amber,
+                            color: AppTheme.warningAmber,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              isChichewa
+                                  ? 'Zotsatira sizikutsimikiza bwino. Funsani Afesa Officer kapena Agro Dealer kuti mupeze chithandizo.'
+                                  : 'Results are uncertain. Contact an Extension Officer or Agro Dealer for proper assistance.',
+                              style: AppTextStyles.bodyMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  // ============================================
+                  // PRIVACY: Share/Opt-out toggle for Disease Watch
+                  // ============================================
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryGreen.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppTheme.primaryGreen.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isChichewa
+                                    ? 'Ganizani ndi alimi ena'
+                                    : 'Share with other farmers',
+                                style: AppTextStyles.bodyMedium.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                isChichewa
+                                    ? 'Dera likuonedwa, dzina lanu silisiwe'
+                                    : 'District shown, your name stays private',
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: AppTheme.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _isPublic,
+                          onChanged: (value) {
+                            setState(() {
+                              _isPublic = value;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ============================================
+                  // ALWAYS SHOW: Help section (both confidence levels)
+                  // ============================================
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryGreen.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.support_agent,
+                          color: AppTheme.primaryGreen,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isChichewa ? 'Pezani Thandizo' : 'Get Help',
+                          style: AppTextStyles.bodyMedium.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Extension Officer Card (always shown)
+                  if (nearestOfficer != null)
+                    () {
+                      final officer = nearestOfficer!;
+                      return _buildContactCard(
+                        title: isChichewa
+                            ? 'Afesa Officer (Thandizo Lapafupi)'
+                            : 'Extension Officer (Nearby Help)',
+                        name: officer.name,
+                        phone: officer.phone,
+                        latitude: officer.latitude,
+                        longitude: officer.longitude,
+                        icon: Icons.person,
+                        color: AppTheme.accentOrange,
+                        onCall: () => _makePhoneCall(officer.phone),
+                        isChichewa: isChichewa,
+                      );
+                    }()
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accentOrange.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.accentOrange.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.person, color: AppTheme.accentOrange),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              isChichewa
+                                  ? 'Tikupezani Afesa Officer wapafupi...'
+                                  : 'Locating nearby Extension Officer...',
+                              style: AppTextStyles.bodyMedium.copyWith(
+                                color: AppTheme.accentOrange,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SizedBox(height: 12),
+
+                  // Contact Extension Officer button (always shown)
+                  _buildMessageActionButton(
+                    label: isChichewa
+                        ? 'Lankhulani ndi Afesa Officer'
+                        : 'Contact Extension Officer',
+                    icon: Icons.message,
+                    color: AppTheme.accentOrange,
+                    onTap: () => _contactExtensionOfficer(
+                      context,
+                      nearestOfficer,
+                      isChichewa,
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Agro Dealer Card (always shown)
+                  if (nearestDealer != null)
+                    () {
+                      final dealer = nearestDealer!;
+                      return _buildContactCard(
+                        title: isChichewa ? 'Agro-Dealer' : 'Agro-Dealer',
+                        name: dealer.name,
+                        phone: dealer.phone,
+                        latitude: dealer.latitude,
+                        longitude: dealer.longitude,
+                        icon: Icons.store,
+                        color: AppTheme.primaryGreen,
+                        onCall: () => _makePhoneCall(dealer.phone),
+                        isChichewa: isChichewa,
+                      );
+                    }()
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryGreen.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.primaryGreen.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.store, color: AppTheme.primaryGreen),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              isChichewa
+                                  ? 'Tikupezani Agro Dealer wapafupi...'
+                                  : 'Locating nearby Agro Dealer...',
+                              style: AppTextStyles.bodyMedium.copyWith(
+                                color: AppTheme.primaryGreen,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SizedBox(height: 12),
+
+                  // Contact Agro Dealer button (always shown)
+                  _buildMessageActionButton(
+                    label: isChichewa
+                        ? 'Lankhulani ndi Agro Dealer'
+                        : 'Contact Agro Dealer',
+                    icon: Icons.message,
+                    color: AppTheme.primaryGreen,
+                    onTap: () =>
+                        _contactAgroDealer(context, nearestDealer, isChichewa),
+                  ),
+
+                  // ============================================
+                  // ALWAYS SHOW: Send Alert button (replaces Report to Manager)
+                  // ============================================
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        _sendAlert(
+                          context,
+                          result,
+                          locationText,
+                          authState,
+                          isChichewa,
+                        );
+                      },
+                      icon: const Icon(Icons.send),
+                      label: Text(
+                        isChichewa
+                            ? 'Tumizani Chidziwiso kwa Manager'
+                            : 'Send Alert to Manager',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.warningAmber,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+                  // ============================================
+                  // Share report via WhatsApp / other apps
+                  // ============================================
+                  ShareReportButton(
+                    label: isChichewa
+                        ? 'Tumiza pa WhatsApp'
+                        : 'Share via WhatsApp',
+                    onShare: () => ReportShareService.shareDiagnosis(
+                      diagnosis: result,
+                      farmerName: authState.status == AuthStatus.authenticated
+                          ? authState.user?.fullName
+                          : null,
+                      farmerPhone: authState.status == AuthStatus.authenticated
+                          ? authState.user?.phoneNumber
+                          : null,
+                      district: authState.status == AuthStatus.authenticated
+                          ? authState.user?.district
+                          : null,
+                      village: locationText.isNotEmpty ? locationText : null,
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Location
+                  // Location
+                  if (locationText.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on,
+                            size: 20,
+                            color: AppTheme.primaryGreen,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              locationText,
+                              style: AppTextStyles.bodyMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SizedBox(height: 12),
+
+                  // Timestamp
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.access_time,
+                        size: 16,
+                        color: AppTheme.textMuted,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _formatDate(result.timestamp),
+                        style: AppTextStyles.caption,
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        _openAssistantForDiagnosis(
+                          hostContext: dialogContext,
+                          diagnosis: result,
+                          isChichewa: isChichewa,
+                          initialPrompt: _buildDefaultAssistantPrompt(
+                            diagnosis: result,
+                            isChichewa: isChichewa,
+                          ),
+                          nearestOfficer: nearestOfficer,
+                          nearestDealer: nearestDealer,
+                          locationName: locationText,
+                        );
+                      },
+                      icon: const Icon(Icons.smart_toy),
+                      label: Text(
+                        isChichewa ? 'Funsani AI' : 'Ask AI Follow-up',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryGreen,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Action Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            context.read<DiagnosisBloc>().add(DiagnosisReset());
+                          },
+                          child: Text(isChichewa ? 'Yeselaninso' : 'Try Again'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            Navigator.of(this.context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    HistoryPage(initialDiagnosis: result),
+                              ),
+                            );
+                          },
+                          child: Text(isChichewa ? 'Mbiri' : 'History'),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(dialogContext);
+                        context.go(AppRoutes.home);
+                      },
+                      icon: const Icon(Icons.home_outlined),
+                      label: const Text('Back to Home'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF2E7D32),
+                        side: const BorderSide(
+                          color: Color(0xFF2E7D32),
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildConfidenceBadge(
+    double confidence,
+    bool isHighConfidence,
+    bool isChichewa,
+  ) {
+    final color = isHighConfidence
+        ? AppTheme.healthyGreen
+        : AppTheme.warningAmber;
+    final confidencePercent = (confidence * 100).toStringAsFixed(0);
+
+    String confidenceMessage;
+    if (confidence >= 0.8) {
+      confidenceMessage = FarmerMessages.getConfidenceHigh(isChichewa);
+    } else if (confidence >= 0.7) {
+      confidenceMessage = FarmerMessages.getConfidenceMedium(isChichewa);
+    } else {
+      confidenceMessage = FarmerMessages.getUncertainResult(isChichewa);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color, width: 2),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isHighConfidence ? Icons.check_circle : Icons.warning,
+                color: color,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$confidencePercent% ${isChichewa ? 'Kutsimikiza' : 'confidence'}',
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  isHighConfidence
+                      ? (isChichewa ? 'Yokwela' : 'HIGH')
+                      : (isChichewa ? 'Yotsika' : 'LOW'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!isHighConfidence) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.warningAmber.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.warningAmber),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.help_outline,
+                  color: AppTheme.warningAmber,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    confidenceMessage,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isChichewa ? AppTheme.textDark : AppTheme.textDark,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildContactCard({
+    required String title,
+    required String name,
+    required String phone,
+    required double latitude,
+    required double longitude,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onCall,
+    required bool isChichewa,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTextStyles.headingSmall.copyWith(color: color),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(name, style: AppTextStyles.bodyLarge),
+          const SizedBox(height: 4),
+          Text(
+            phone,
+            style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: onCall,
+                    icon: const Icon(Icons.phone, size: 18),
+                    label: Text(isChichewa ? 'Lowa fono' : 'Call Now'),
+                    style: ElevatedButton.styleFrom(backgroundColor: color),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openDirections(
+                      latitude: latitude,
+                      longitude: longitude,
+                      label: name,
+                    ),
+                    icon: const Icon(Icons.navigation, size: 18),
+                    label: Text(isChichewa ? 'Mapu' : 'Directions'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+        ),
+      ),
+    );
+  }
+
+  String _resolveDetailText(String? value, bool isChichewa) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return isChichewa ? 'Palibe' : 'Not available';
+    }
+    return text;
+  }
+
+  Widget _buildDetailSection(
+    String title,
+    String content,
+    bool isChichewa,
+    IconData icon,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: AppTheme.primaryGreen),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: AppTextStyles.headingSmall.copyWith(
+                  color: AppTheme.primaryGreen,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Text(content, style: AppTextStyles.bodyMedium),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    }
+  }
+
+  Future<void> _openDirections({
+    required double latitude,
+    required double longitude,
+    required String label,
+  }) async {
+    final encodedLabel = Uri.encodeComponent(label);
+    final googleMapsUri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude&query=$encodedLabel&travelmode=driving',
+    );
+    if (await canLaunchUrl(googleMapsUri)) {
+      await launchUrl(googleMapsUri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  void _openAssistantForDiagnosis({
+    required BuildContext hostContext,
+    required DiagnosisResult diagnosis,
+    required bool isChichewa,
+    String? initialPrompt,
+    ExtensionOfficer? nearestOfficer,
+    AgroDealer? nearestDealer,
+    String? locationName,
+  }) {
+    // Ensure the app requests a fresh location before opening assistant.
+    final locationBloc = context.read<LocationBloc>();
+    if (locationBloc.state is! LocationLoaded) {
+      locationBloc.add(LocationGetCurrent());
+    }
+
+    Navigator.pop(hostContext);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.82,
+          minChildSize: 0.55,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, controller) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: AiAssistantTab(
+                isChichewa: isChichewa,
+                initialDiagnosis: diagnosis,
+                initialPrompt: initialPrompt,
+                floatingMode: true,
+                pageContext: isChichewa
+                    ? 'Zotsatira za kufufuza'
+                    : 'Scan result',
+                onClose: () => Navigator.of(sheetContext).pop(),
+                initialNearestOfficer: nearestOfficer,
+                initialNearestDealer: nearestDealer,
+                initialLocationName: locationName,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _buildDefaultAssistantPrompt({
+    required DiagnosisResult diagnosis,
+    required bool isChichewa,
+  }) {
+    final diagnosisName = isChichewa
+        ? diagnosis.diagnosisNameChichewa
+        : diagnosis.diagnosisName;
+
+    if (diagnosis.confidence >= confidenceThreshold) {
+      return isChichewa
+          ? 'Ndafotokozerani zotsatira za "$diagnosisName" ndipo mundiuze zomwe ndiyenera kuchita tsopano, kuphatikiza mankhwala ndi njira zopewera.'
+          : 'Please explain this "$diagnosisName" result and tell me what I should do next, including treatment and prevention.';
+    }
+
+    return isChichewa
+        ? 'Zotsatira za "$diagnosisName" sizikutsimikiza bwino. Ndithandizeni kumvetsa zomwe ndiyenera kuchita tsopano ndi ngati ndilankhule ndi thandizo lapafupi.'
+        : 'This "$diagnosisName" result looks uncertain. Help me understand what to do next and whether I should contact nearby support.';
+  }
+
+  String _buildSupportPrompt({
+    required String targetRole,
+    required bool isChichewa,
+    String? contactName,
+  }) {
+    switch (targetRole) {
+      case 'extensionOfficer':
+        return isChichewa
+            ? 'Ndithandizeni kulankhula ndi Afesa Officer${contactName == null ? '' : ' $contactName'} pa zotsatira za scan yanga.'
+            : 'Help me continue this scan with the nearby Extension Officer${contactName == null ? '' : ' $contactName'}.';
+      case 'agroDealer':
+        return isChichewa
+            ? 'Ndithandizeni kupeza mankhwala oyenera ndi kulumikizana ndi agro-dealer${contactName == null ? '' : ' $contactName'}.'
+            : 'Help me find the right remedy and connect with the nearby agro-dealer${contactName == null ? '' : ' $contactName'}.';
+      case 'agricultureManager':
+        return isChichewa
+            ? 'Ndithandizeni kulemba report ya vuto ili kwa Agriculture Manager.'
+            : 'Help me prepare a short report for the Agriculture Manager about this scan result.';
+      default:
+        return isChichewa
+            ? 'Ndithandizeni ndi zotsatira za scan iyi.'
+            : 'Help me with this scan result.';
+    }
+  }
+
+  void _sendAlert(
+    BuildContext context,
+    DiagnosisResult result,
+    String location,
+    AuthState authState,
+    bool isChichewa,
+  ) {
+    final farmerName =
+        authState.status == AuthStatus.authenticated && authState.user != null
+        ? authState.user!.fullName
+        : 'Unknown Farmer';
+    final farmerPhone =
+        authState.status == AuthStatus.authenticated && authState.user != null
+        ? authState.user!.phoneNumber
+        : 'Unknown';
+
+    // Get district separately from location
+    final locationState = context.read<LocationBloc>().state;
+    String district = '';
+    if (locationState is LocationLoaded) {
+      district = locationState.location.district ?? '';
+    }
+
+    // Pre-fill suggested note based on confidence
+    final suggestedNote = result.confidence >= confidenceThreshold
+        ? (isChichewa
+              ? 'Pezani matenda ${result.diagnosisNameChichewa} pa ${result.cropType.displayNameChichewa}. Ndikufuna chithandizo.'
+              : 'Detected ${result.diagnosisName} on ${result.cropType.displayName}. Requesting assistance.')
+        : (isChichewa
+              ? 'Zotsatira sizikutsimikiza bwino - ndikufuna kuwunikira.'
+              : 'Results uncertain - requires professional review.');
+
+    final notesController = TextEditingController(text: suggestedNote);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.send, color: AppTheme.accentOrange),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isChichewa ? 'Tumizani Chidziwiso' : 'Send Alert',
+                  style: AppTextStyles.headingSmall,
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isChichewa
+                      ? 'Tsimikizirani zomwe Manager adzalandire:'
+                      : 'Confirm what the Manager will receive:',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppTheme.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Read-only preview
+                _buildAlertPreviewRow(
+                  Icons.person,
+                  isChichewa ? 'Dzina' : 'Name',
+                  farmerName,
+                ),
+                _buildAlertPreviewRow(
+                  Icons.phone,
+                  isChichewa ? 'Foni' : 'Phone',
+                  farmerPhone,
+                ),
+                _buildAlertPreviewRow(
+                  Icons.location_on,
+                  isChichewa ? 'Malo' : 'Location',
+                  location.isNotEmpty
+                      ? location
+                      : (isChichewa ? 'Sizidziwika' : 'Unknown'),
+                ),
+                if (district.isNotEmpty)
+                  _buildAlertPreviewRow(
+                    Icons.map,
+                    isChichewa ? 'Boma' : 'District',
+                    district,
+                  ),
+                _buildAlertPreviewRow(
+                  Icons.local_florist,
+                  isChichewa ? 'Mbewu' : 'Crop',
+                  isChichewa
+                      ? result.cropType.displayNameChichewa
+                      : result.cropType.displayName,
+                ),
+                _buildAlertPreviewRow(
+                  Icons.bug_report,
+                  isChichewa ? 'Matenda' : 'Diagnosis',
+                  isChichewa
+                      ? result.diagnosisNameChichewa
+                      : result.diagnosisName,
+                ),
+
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+
+                // Editable notes field
+                Text(
+                  isChichewa
+                      ? 'Mawu Anu (mukhoza kusintha):'
+                      : 'Your Notes (editable):',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: notesController,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    hintText: isChichewa
+                        ? 'Lembani zambiri za vutoli...'
+                        : 'Add more details about the issue...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(isChichewa ? 'Ayi' : 'Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                final finalNote = notesController.text.trim().isEmpty
+                    ? suggestedNote
+                    : notesController.text.trim();
+
+                final alert = Alert(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  farmerName: farmerName,
+                  farmerPhone: farmerPhone,
+                  location: location,
+                  district: district,
+                  cropName: isChichewa
+                      ? result.cropType.displayNameChichewa
+                      : result.cropType.displayName,
+                  diagnosisName: isChichewa
+                      ? result.diagnosisNameChichewa
+                      : result.diagnosisName,
+                  confidence: result.confidence,
+                  timestamp: DateTime.now(),
+                  note: finalNote,
+                  status: 'pending',
+                );
+
+                context.read<AlertsBloc>().add(AlertSent(alert));
+
+                // Also notify extension officer (existing flow)
+                final locationState = context.read<LocationBloc>().state;
+                final ExtensionOfficer? notifyOfficer =
+                    locationState is LocationLoaded
+                    ? locationState.nearestOfficer
+                    : null;
+                _createReportAndNotify(
+                  result: result,
+                  isChichewa: isChichewa,
+                  nearestOfficer: notifyOfficer,
+                  isPublic: _isPublic,
+                );
+
+                Navigator.pop(dialogContext);
+
+                // Show confirmation
+                showDialog(
+                  context: context,
+                  builder: (confirmContext) {
+                    return AlertDialog(
+                      title: Row(
+                        children: [
+                          Icon(
+                            Icons.check_circle,
+                            color: AppTheme.healthyGreen,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(isChichewa ? 'Yatumizidwa!' : 'Alert Sent!'),
+                        ],
+                      ),
+                      content: Text(
+                        isChichewa
+                            ? 'Alert yanu yatumizidwa kwa Agriculture Manager. Mudzapatsidwa thandizo posachedwa.'
+                            : 'Your alert has been sent to the Agriculture Manager. You will receive assistance soon.',
+                      ),
+                      actions: [
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(confirmContext),
+                          child: Text(isChichewa ? 'Uli' : 'OK'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+              icon: const Icon(Icons.send),
+              label: Text(isChichewa ? 'Tumiza' : 'Send'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accentOrange,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAlertPreviewRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: AppTheme.primaryGreen),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label:',
+              style: AppTextStyles.bodySmall.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textMuted,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value, style: AppTextStyles.bodySmall)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _createReportAndNotify({
+    required DiagnosisResult result,
+    required bool isChichewa,
+    ExtensionOfficer? nearestOfficer,
+    bool isPublic = true,
+  }) async {
+    final authState = context.read<AuthBloc>().state;
+    if (authState.status != AuthStatus.authenticated ||
+        authState.user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isChichewa
+                ? 'Lowani kaye kuti muthe kutumiza lipoti.'
+                : 'Please log in to send a report.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final locationState = context.read<LocationBloc>().state;
+    final location = locationState is LocationLoaded
+        ? locationState.location
+        : null;
+
+    try {
+      await _reportService.createReport(
+        diagnosis: result,
+        farmer: authState.user!,
+        location: location,
+        nearestOfficer: nearestOfficer,
+        isPublic: isPublic,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isChichewa
+                  ? 'lipoti latumizidwa kwa Manager ndi Afesa Officer.'
+                  : 'Report sent to the Manager and Extension Officer.',
+            ),
+            backgroundColor: AppTheme.healthyGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isChichewa
+                  ? 'Lipoti sinatumizidwe. Yesaninso.'
+                  : 'Report failed to send. Please try again.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  void _contactExtensionOfficer(
+    BuildContext context,
+    ExtensionOfficer? officer,
+    bool isChichewa,
+  ) {
+    if (officer == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isChichewa
+                ? 'Palibe Afesa Officer wapezeka'
+                : 'No Extension Officer found',
+          ),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      builder: (bottomSheetContext) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: AppTheme.accentOrange,
+                child: const Icon(Icons.person, size: 40, color: Colors.white),
+              ),
+              const SizedBox(height: 16),
+              Text(officer.name, style: AppTextStyles.headingMedium),
+              const SizedBox(height: 4),
+              Text(
+                isChichewa ? 'Afesa Officer' : 'Extension Officer',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              if (officer.area != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  officer.area!,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppTheme.primaryGreen,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(bottomSheetContext);
+                        _makePhoneCall(officer.phone);
+                      },
+                      icon: const Icon(Icons.phone),
+                      label: Text(isChichewa ? 'Lowa Fono' : 'Call'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.accentOrange,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(bottomSheetContext);
+                        _startMessageConversation(
+                          context,
+                          officer,
+                          'extensionOfficer',
+                          isChichewa,
+                        );
+                      },
+                      icon: const Icon(Icons.message),
+                      label: Text(isChichewa ? 'Uthenga' : 'Message'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _contactAgroDealer(
+    BuildContext context,
+    AgroDealer? dealer,
+    bool isChichewa,
+  ) {
+    if (dealer == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isChichewa ? 'Palibe Agro Dealer wapezeka' : 'No Agro Dealer found',
+          ),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      builder: (bottomSheetContext) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: AppTheme.primaryGreen,
+                child: const Icon(Icons.store, size: 40, color: Colors.white),
+              ),
+              const SizedBox(height: 16),
+              Text(dealer.name, style: AppTextStyles.headingMedium),
+              const SizedBox(height: 4),
+              Text(
+                isChichewa ? 'Agro-Dealer' : 'Agro-Dealer',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              if (dealer.area != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  dealer.area!,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppTheme.primaryGreen,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(bottomSheetContext);
+                        _makePhoneCall(dealer.phone);
+                      },
+                      icon: const Icon(Icons.phone),
+                      label: Text(isChichewa ? 'Lowa Fono' : 'Call'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryGreen,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(bottomSheetContext);
+                        _startMessageConversation(
+                          context,
+                          dealer,
+                          'agroDealer',
+                          isChichewa,
+                        );
+                      },
+                      icon: const Icon(Icons.message),
+                      label: Text(isChichewa ? 'Uthenga' : 'Message'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _startMessageConversation(
+    BuildContext context,
+    dynamic entity,
+    String targetRole,
+    bool isChichewa,
+  ) {
+    final diagnosisState = context.read<DiagnosisBloc>().state;
+    final diagnosis = entity is DiagnosisResult
+        ? entity
+        : diagnosisState is DiagnosisSuccess
+        ? diagnosisState.result
+        : null;
+
+    final contactName = switch (entity) {
+      final ExtensionOfficer officer => officer.name,
+      final AgroDealer dealer => dealer.name,
+      _ => null,
+    };
+
+    if (diagnosis == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isChichewa
+                ? 'Yambani ndi zotsatila za zafukufuku kuti AI ikuthandizeni bwino.'
+                : 'Start with a scan result first so AI can help with context.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final locationState = context.read<LocationBloc>().state;
+    String locationText = '';
+    String? district;
+    if (locationState is LocationLoaded) {
+      locationText = locationState.location.placeName ?? '';
+      district = locationState.location.district;
+      if (locationText.isNotEmpty && district != null) {
+        locationText += ', $district';
+      } else if (district != null && locationText.isEmpty) {
+        locationText = district;
+      }
+    }
+
+    _openAssistantForDiagnosis(
+      hostContext: context,
+      diagnosis: diagnosis,
+      isChichewa: isChichewa,
+      initialPrompt: _buildSupportPrompt(
+        targetRole: targetRole,
+        isChichewa: isChichewa,
+        contactName: contactName,
+      ),
+      nearestOfficer: locationState is LocationLoaded
+          ? locationState.nearestOfficer
+          : null,
+      nearestDealer: locationState is LocationLoaded
+          ? locationState.nearestDealer
+          : null,
+      locationName: locationText.isNotEmpty ? locationText : null,
+    );
+  }
+
+  Color _getSeverityColor(dynamic severity) {
+    switch (severity.toString()) {
+      case 'Severity.low':
+        return AppTheme.healthyGreen;
+      case 'Severity.medium':
+        return AppTheme.warningAmber;
+      case 'Severity.high':
+        return AppTheme.diseaseRed;
+      default:
+        return AppTheme.textLight;
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+
+=== lib/features/diagnosis/data/repositories/diagnosis_repository_impl.dart ===
+import 'package:dartz/dartz.dart';
+import '../../../../core/error/failures.dart';
+import '../../domain/entities/diagnosis_result.dart';
+import '../../domain/repositories/diagnosis_repository.dart';
+import '../datasources/diagnosis_local_datasource.dart';
+
+class DiagnosisRepositoryImpl implements DiagnosisRepository {
+  final DiagnosisLocalDataSource localDataSource;
+
+  DiagnosisRepositoryImpl(this.localDataSource);
+
+  @override
+  Future<Either<Failure, List<DiagnosisResult>>> getHistory(String? userId) async {
+    try {
+      final history = await localDataSource.getHistory(userId);
+      return Right(history);
+    } catch (e) {
+      return Left(CacheFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, DiagnosisResult>> saveDiagnosis(DiagnosisResult result) async {
+    try {
+      final saved = await localDataSource.saveDiagnosis(result);
+      return Right(saved);
+    } catch (e) {
+      return Left(CacheFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> deleteDiagnosis(String id) async {
+    try {
+      await localDataSource.deleteDiagnosis(id);
+      return const Right(null);
+    } catch (e) {
+      return Left(CacheFailure(e.toString()));
+    }
+  }
+}
+
+
+=== lib/features/diagnosis/domain/repositories/diagnosis_repository.dart ===
+import 'package:dartz/dartz.dart';
+import '../../../../core/error/failures.dart';
+import '../entities/diagnosis_result.dart';
+
+abstract class DiagnosisRepository {
+  Future<Either<Failure, List<DiagnosisResult>>> getHistory(String? userId);
+  Future<Either<Failure, DiagnosisResult>> saveDiagnosis(DiagnosisResult result);
+  Future<Either<Failure, void>> deleteDiagnosis(String id);
+}
+
+
+=== lib/features/history/presentation/pages/history_page.dart ===
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../shared/widgets/pressable.dart';
+import '../../../../core/di/injection_container.dart' as di;
+import '../../../../core/services/ai_assistant_service.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../../../auth/domain/entities/user.dart';
+import '../../../settings/presentation/bloc/settings_bloc.dart';
+import '../../../diagnosis/presentation/bloc/diagnosis_bloc.dart';
+import '../../../diagnosis/domain/entities/diagnosis_result.dart';
+
+class HistoryPage extends StatefulWidget {
+  final int initialTab;
+  final DiagnosisResult? initialDiagnosis;
+
+  const HistoryPage({super.key, this.initialTab = 0, this.initialDiagnosis});
+
+  @override
+  State<HistoryPage> createState() => _HistoryPageState();
+}
+
+class _HistoryPageState extends State<HistoryPage>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  late final AiAssistantService _assistantService;
+  String _selectedMonth = 'all';
+
+  @override
+  void initState() {
+    super.initState();
+    final safeInitialTab = widget.initialTab.clamp(0, 1);
+    _assistantService = di.sl<AiAssistantService>();
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: safeInitialTab,
+    );
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        return;
+      }
+
+      final contextName = _tabController.index == 1 ? 'Reports' : 'History';
+      _assistantService.setCurrentUiContext(contextName);
+    });
+
+    _assistantService.setCurrentUiContext(
+      safeInitialTab == 1 ? 'Reports' : 'History',
+    );
+    final authState = context.read<AuthBloc>().state;
+    final user = authState.user;
+    final userId = user?.role == UserRole.agricultureManager ? null : user?.id;
+    context.read<DiagnosisBloc>().add(
+      DiagnosisHistoryRequested(userId: userId),
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settingsState = context.watch<SettingsBloc>().state;
+    final isChichewa = settingsState is SettingsLoaded
+        ? settingsState.languageCode == 'ny'
+        : true;
+    final authState = context.read<AuthBloc>().state;
+    final user = authState.user;
+    final userId = user?.role == UserRole.agricultureManager ? null : user?.id;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(isChichewa ? 'Mbiri ndi Malipoti' : 'History and Reports'),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: [
+            Tab(text: isChichewa ? 'Mbiri' : 'History'),
+            Tab(text: isChichewa ? 'Malipoti' : 'Reports'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildHistoryTab(isChichewa, userId),
+          _buildReportsTab(isChichewa),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryTab(bool isChichewa, String? userId) {
+    return BlocBuilder<DiagnosisBloc, DiagnosisState>(
+      builder: (context, state) {
+        if (state is DiagnosisLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (state is DiagnosisHistoryLoaded) {
+          if (state.history.isEmpty) {
+            return _buildEmptyState(isChichewa);
+          }
+
+          final filteredHistory = _filterHistory(state.history);
+
+          return RefreshIndicator(
+            onRefresh: () async {
+              final authState = context.read<AuthBloc>().state;
+              final user = authState.user;
+              final userId = user?.role == UserRole.agricultureManager
+                  ? null
+                  : user?.id;
+              context.read<DiagnosisBloc>().add(
+                DiagnosisHistoryRequested(userId: userId),
+              );
+            },
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: filteredHistory.length,
+              itemBuilder: (context, index) {
+                final result = filteredHistory[index];
+                return _buildHistoryCard(result, isChichewa, userId);
+              },
+            ),
+          );
+        }
+
+        if (state is DiagnosisError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+                const SizedBox(height: 16),
+                Text(state.message),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    final userId = context.read<AuthBloc>().state.user?.id;
+                    context.read<DiagnosisBloc>().add(
+                      DiagnosisHistoryRequested(userId: userId),
+                    );
+                  },
+                  child: Text(isChichewa ? 'Jarani' : 'Retry'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return _buildEmptyState(isChichewa);
+      },
+    );
+  }
+
+  Widget _buildReportsTab(bool isChichewa) {
+    return BlocBuilder<DiagnosisBloc, DiagnosisState>(
+      builder: (context, state) {
+        if (state is DiagnosisHistoryLoaded) {
+          final history = state.history;
+          final filteredHistory = _filterHistory(history);
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildMonthFilter(isChichewa),
+                const SizedBox(height: 16),
+                _buildSummaryCards(history, filteredHistory, isChichewa),
+                const SizedBox(height: 24),
+                _buildCropDistribution(filteredHistory, isChichewa),
+                const SizedBox(height: 24),
+                _buildSeverityDistribution(filteredHistory, isChichewa),
+              ],
+            ),
+          );
+        }
+
+        return const Center(child: CircularProgressIndicator());
+      },
+    );
+  }
+
+  Widget _buildMonthFilter(bool isChichewa) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          isChichewa ? 'Sunga chaka' : 'Filter by Month',
+          style: AppTextStyles.headingSmall,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            _buildFilterChip('all', isChichewa ? 'Onse' : 'All'),
+            _buildFilterChip(
+              DateTime.now().month.toString(),
+              isChichewa ? 'Mweyi uno' : 'This Month',
+            ),
+            _buildFilterChip(
+              ((DateTime.now().month - 1) % 12 + 12) % 12 == 0
+                  ? '12'
+                  : ((DateTime.now().month - 1) % 12 + 12).toString(),
+              isChichewa ? 'Mweyi yapita' : 'Last Month',
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip(String month, String label) {
+    final isSelected = _selectedMonth == month;
+    return FilterChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          _selectedMonth = month;
+        });
+      },
+      selectedColor: AppTheme.primaryGreen.withValues(alpha: 0.2),
+      checkmarkColor: AppTheme.primaryGreen,
+    );
+  }
+
+  List<DiagnosisResult> _filterHistory(List<DiagnosisResult> history) {
+    if (_selectedMonth == 'all') return history;
+
+    final month = int.tryParse(_selectedMonth) ?? 0;
+    return history.where((r) => r.timestamp.month == month).toList();
+  }
+
+  Widget _buildSummaryCards(
+    List<DiagnosisResult> allHistory,
+    List<DiagnosisResult> filteredHistory,
+    bool isChichewa,
+  ) {
+    final count = filteredHistory.length;
+    final diseaseCount = filteredHistory
+        .where((r) => r.type.name == 'disease')
+        .length;
+    final pestCount = filteredHistory
+        .where((r) => r.type.name == 'pest')
+        .length;
+    final healthyCount = filteredHistory
+        .where((r) => r.type.name == 'healthy')
+        .length;
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _buildSummaryCard(
+                isChichewa ? 'Onse' : 'Total',
+                count.toString(),
+                Icons.summarize,
+                AppTheme.primaryGreen,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildSummaryCard(
+                isChichewa ? 'Matenda' : 'Diseases',
+                diseaseCount.toString(),
+                Icons.coronavirus,
+                AppTheme.diseaseRed,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildSummaryCard(
+                isChichewa ? 'Zotchinga' : 'Pests',
+                pestCount.toString(),
+                Icons.bug_report,
+                AppTheme.pestOrange,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildSummaryCard(
+                isChichewa ? 'Zabwino' : 'Healthy',
+                healthyCount.toString(),
+                Icons.check_circle,
+                AppTheme.healthyGreen,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+              Text(
+                title,
+                style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCropDistribution(
+    List<DiagnosisResult> history,
+    bool isChichewa,
+  ) {
+    final maize = history.where((r) => r.type.name == 'maize').length;
+    final cassava = history.where((r) => r.type.name == 'cassava').length;
+    final tomato = history.where((r) => r.type.name == 'tomato').length;
+    final total = history.isEmpty ? 1 : history.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          isChichewa ? 'Mianga ya Zipatso' : 'Crop Distribution',
+          style: AppTextStyles.headingSmall,
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              _buildDistributionRow('🌽 Maize', maize, total),
+              const SizedBox(height: 8),
+              _buildDistributionRow('🫘 Cassava', cassava, total),
+              const SizedBox(height: 8),
+              _buildDistributionRow('🍅 Tomato', tomato, total),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSeverityDistribution(
+    List<DiagnosisResult> history,
+    bool isChichewa,
+  ) {
+    final low = history.where((r) => r.severity.name == 'low').length;
+    final medium = history.where((r) => r.severity.name == 'medium').length;
+    final high = history.where((r) => r.severity.name == 'high').length;
+    final total = history.isEmpty ? 1 : history.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          isChichewa ? 'Yambiri ya Vuto' : 'Severity Distribution',
+          style: AppTextStyles.headingSmall,
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              _buildDistributionRow('Low', low, total, AppTheme.healthyGreen),
+              const SizedBox(height: 8),
+              _buildDistributionRow(
+                'Medium',
+                medium,
+                total,
+                AppTheme.warningAmber,
+              ),
+              const SizedBox(height: 8),
+              _buildDistributionRow('High', high, total, AppTheme.diseaseRed),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDistributionRow(
+    String label,
+    int count,
+    int total, [
+    Color? color,
+  ]) {
+    final percentage = total > 0 ? (count / total * 100).round() : 0;
+    return Row(
+      children: [
+        SizedBox(
+          width: 100,
+          child: Text(label, style: const TextStyle(fontSize: 14)),
+        ),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: total > 0 ? count / total : 0,
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation(
+                color ?? AppTheme.primaryGreen,
+              ),
+              minHeight: 8,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          '$percentage%',
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState(bool isChichewa) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.history, size: 80, color: AppTheme.textMuted),
+          const SizedBox(height: 16),
+          Text(
+            isChichewa ? 'Palibe mbiri' : 'No history yet',
+            style: AppTextStyles.headingMedium.copyWith(
+              color: AppTheme.textMuted,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isChichewa
+                ? 'Zopima zanu zidzasungidwa apa'
+                : 'Your diagnoses will appear here',
+            style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryCard(
+    DiagnosisResult result,
+    bool isChichewa,
+    String? userId,
+  ) {
+    final chatMessages = _assistantService.loadHistory(
+      isChichewa ? 'ny' : 'en',
+      userId: userId,
+      diagnosisId: result.id,
+    );
+    final linkedMessages = chatMessages
+        .where((m) => m.diagnosisId == result.id)
+        .toList();
+    final hasConversation = linkedMessages.isNotEmpty;
+    final latestChat = hasConversation ? linkedMessages.last.text : null;
+
+    return Pressable(
+      onTap: () => _showDetailDialog(result, isChichewa),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: _getSeverityColor(
+                    result.severity,
+                  ).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  _getDiagnosisIcon(result.type.name),
+                  color: _getSeverityColor(result.severity),
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isChichewa
+                          ? result.diagnosisNameChichewa
+                          : result.diagnosisName,
+                      style: AppTextStyles.headingSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _buildChip(
+                          isChichewa
+                              ? result.type.displayNameChichewa
+                              : result.type.displayName,
+                          _getSeverityColor(result.severity),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _formatDate(result.timestamp),
+                          style: AppTextStyles.caption,
+                        ),
+                      ],
+                    ),
+                    if (hasConversation) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryGreen.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.chat_bubble_outline,
+                              size: 14,
+                              color: AppTheme.primaryGreen,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                latestChat!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.textDark,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${linkedMessages.length}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.primaryGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: AppTheme.textMuted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: color,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  void _showDetailDialog(DiagnosisResult result, bool isChichewa) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.9,
+          minChildSize: 0.4,
+          expand: false,
+          builder: (context, scrollController) {
+            return SingleChildScrollView(
+              controller: scrollController,
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _getSeverityColor(
+                            result.severity,
+                          ).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          _getDiagnosisIcon(result.type.name),
+                          color: _getSeverityColor(result.severity),
+                          size: 32,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isChichewa
+                                  ? result.diagnosisNameChichewa
+                                  : result.diagnosisName,
+                              style: AppTextStyles.headingMedium,
+                            ),
+                            Text(
+                              '${(result.confidence * 100).toStringAsFixed(0)}% ${isChichewa ? 'chikumbutso' : 'confidence'}',
+                              style: AppTextStyles.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  _buildDetailRow(
+                    isChichewa ? 'Mtundu' : 'Type',
+                    isChichewa
+                        ? result.type.displayNameChichewa
+                        : result.type.displayName,
+                  ),
+                  _buildDetailRow(
+                    isChichewa ? 'Yambiri' : 'Severity',
+                    isChichewa
+                        ? result.severity.displayNameChichewa
+                        : result.severity.displayName,
+                  ),
+                  _buildDetailRow(
+                    isChichewa ? 'Tsiku' : 'Date',
+                    _formatDate(result.timestamp),
+                  ),
+
+                  if (result.treatment != null) ...[
+                    const SizedBox(height: 20),
+                    Text(
+                      isChichewa ? 'Mankhwala' : 'Treatment',
+                      style: AppTextStyles.headingSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(result.treatment!, style: AppTextStyles.bodyMedium),
+                  ],
+
+                  if (result.recommendation != null) ...[
+                    const SizedBox(height: 20),
+                    Text(
+                      isChichewa ? 'Ndondomeko' : 'Recommendation',
+                      style: AppTextStyles.headingSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      result.recommendation!,
+                      style: AppTextStyles.bodyMedium,
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: AppTextStyles.bodyMedium.copyWith(color: AppTheme.textMuted),
+          ),
+          Text(value, style: AppTextStyles.bodyMedium),
+        ],
+      ),
+    );
+  }
+
+  Color _getSeverityColor(dynamic severity) {
+    switch (severity.toString()) {
+      case 'Severity.low':
+        return AppTheme.healthyGreen;
+      case 'Severity.medium':
+        return AppTheme.warningAmber;
+      case 'Severity.high':
+        return AppTheme.diseaseRed;
+      default:
+        return AppTheme.textLight;
+    }
+  }
+
+  IconData _getDiagnosisIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'disease':
+        return Icons.coronavirus;
+      case 'pest':
+        return Icons.bug_report;
+      case 'deficiency':
+        return Icons.science;
+      case 'healthy':
+        return Icons.check_circle;
+      default:
+        return Icons.eco;
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
+  }
+}
+
+
+=== lib/features/disease_watch/presentation/pages/disease_watch_page.dart ===
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../domain/entities/disease_trend_card.dart';
+import '../bloc/disease_watch_bloc.dart';
+import '../widgets/disease_watch_card.dart';
+import '../widgets/category_filter_chips.dart';
+import '../widgets/disease_detail_bottom_sheet.dart';
+import '../../../diagnosis/domain/entities/crop_type.dart';
+import '../../../diagnosis/domain/entities/diagnosis_category.dart';
+import '../../../../shared/widgets/app_button.dart';
+import '../../../../shared/widgets/loading_indicator.dart';
+import '../../../../shared/widgets/empty_state.dart';
+import '../../../../shared/routes/app_routes.dart';
+
+class DiseaseWatchPage extends StatefulWidget {
+  final String cropType;
+
+  const DiseaseWatchPage({super.key, required this.cropType});
+
+  @override
+  State<DiseaseWatchPage> createState() => _DiseaseWatchPageState();
+}
+
+class _DiseaseWatchPageState extends State<DiseaseWatchPage> {
+  late CropType _crop;
+  DiagnosisCategory? _currentFilter;
+
+  @override
+  void initState() {
+    super.initState();
+    _crop = CropType.values.firstWhere(
+      (c) => c.name == widget.cropType,
+      orElse: () => CropType.maize,
+    );
+
+    // Load disease watch data on init
+    context.read<DiseaseWatchBloc>().add(
+      LoadDiseaseWatchRequested(widget.cropType),
+    );
+  }
+
+  Future<void> _onRefresh() async {
+    context.read<DiseaseWatchBloc>().add(
+      RefreshDiseaseWatchRequested(widget.cropType),
+    );
+  }
+
+  void _showDetailModal(DiseaseTrendCard trend) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DiseaseDetailBottomSheet(trend: trend),
+    );
+  }
+
+  void _onScanNow() {
+    // Navigate to scan with the current crop preselected
+    context.go('${AppRoutes.scan}?crop=${widget.cropType}');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          children: [
+            Text('Disease Watch — ${_crop.displayName}'),
+            Text(
+              'See what farmers across Malawi are reporting',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                color: Colors.white70,
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: BlocBuilder<DiseaseWatchBloc, DiseaseWatchState>(
+        builder: (context, state) {
+          return Stack(
+            children: [
+              // Main content
+              RefreshIndicator(
+                onRefresh: _onRefresh,
+                child: Column(
+                  children: [
+                    // Filter chips
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: CategoryFilterChips(
+                        selectedCategory: _currentFilter,
+                        onCategoryChanged: (category) {
+                          setState(() => _currentFilter = category);
+                          context.read<DiseaseWatchBloc>().add(
+                            FilterByCategoryRequested(category),
+                          );
+                        },
+                      ),
+                    ),
+
+                    // Monthly report banner
+                    if (state is DiseaseWatchSuccess)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryGreen.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: AppTheme.primaryGreen.withValues(
+                                alpha: 0.3,
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Text('📊', style: TextStyle(fontSize: 18)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  '${state.totalReportMonth} reports from farmers across Malawi this month',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppTheme.primaryGreen,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                    // Content
+                    Expanded(child: _buildContent(state)),
+                  ],
+                ),
+              ),
+
+              // Sticky "Scan My Crop Now" button
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.backgroundWhite,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, -2),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(16),
+                  child:
+                      AppButton(
+                            label: '📷 Scan My Crop Now',
+                            onPressed: _onScanNow,
+                            variant: AppButtonVariant.primary,
+                          )
+                          .animate(
+                            onPlay: (controller) =>
+                                controller.repeat(reverse: true),
+                          )
+                          .scaleXY(
+                            begin: 1.0,
+                            end: 1.03,
+                            duration: 1400.ms,
+                            curve: Curves.easeInOut,
+                          ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildContent(DiseaseWatchState state) {
+    if (state is DiseaseWatchLoading) {
+      return const Center(child: LoadingIndicator());
+    }
+
+    if (state is DiseaseWatchError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 64,
+                color: AppTheme.errorRed,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Could not load disease reports',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textDark,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                state.message,
+                style: const TextStyle(fontSize: 14, color: AppTheme.textLight),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  context.read<DiseaseWatchBloc>().add(
+                    RefreshDiseaseWatchRequested(widget.cropType),
+                  );
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (state is DiseaseWatchEmpty) {
+      return Center(
+        child: EmptyState(
+          title: 'No reports yet',
+          message: state.activeFilter != null
+              ? 'No reports in this category — be the first to scan and help other farmers in your area.'
+              : 'No reports yet — be the first to scan and help other farmers in your area.',
+          icon: Icons.search_off,
+        ),
+      );
+    }
+
+    if (state is DiseaseWatchSuccess) {
+      return ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+        itemCount: state.trends.length,
+        itemBuilder: (context, index) {
+          final trend = state.trends[index];
+          return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: DiseaseWatchCard(
+                  trend: trend,
+                  onTap: () => _showDetailModal(trend),
+                ),
+              )
+              .animate(delay: (index * 80).ms)
+              .fadeIn(duration: 350.ms)
+              .slideY(begin: 0.1);
+        },
+      );
+    }
+
+    return const SizedBox.expand();
+  }
+}
+
+
+=== lib/features/disease_watch/presentation/bloc/disease_watch_bloc.dart ===
+import 'package:equatable/equatable.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/error/failures.dart';
+import '../../../diagnosis/domain/entities/diagnosis_category.dart';
+import '../../domain/entities/disease_trend_card.dart';
+import '../../domain/usecases/get_disease_trends_by_crop_usecase.dart';
+
+// Events
+abstract class DiseaseWatchEvent extends Equatable {
+  const DiseaseWatchEvent();
+  @override
+  List<Object?> get props => [];
+}
+
+class LoadDiseaseWatchRequested extends DiseaseWatchEvent {
+  final String cropType;
+
+  const LoadDiseaseWatchRequested(this.cropType);
+
+  @override
+  List<Object?> get props => [cropType];
+}
+
+class FilterByCategoryRequested extends DiseaseWatchEvent {
+  final DiagnosisCategory? category;
+
+  const FilterByCategoryRequested(this.category);
+
+  @override
+  List<Object?> get props => [category];
+}
+
+class RefreshDiseaseWatchRequested extends DiseaseWatchEvent {
+  final String cropType;
+
+  const RefreshDiseaseWatchRequested(this.cropType);
+
+  @override
+  List<Object?> get props => [cropType];
+}
+
+// States
+abstract class DiseaseWatchState extends Equatable {
+  const DiseaseWatchState();
+  @override
+  List<Object?> get props => [];
+}
+
+class DiseaseWatchInitial extends DiseaseWatchState {}
+
+class DiseaseWatchLoading extends DiseaseWatchState {}
+
+class DiseaseWatchSuccess extends DiseaseWatchState {
+  final List<DiseaseTrendCard> trends;
+  final int totalReportMonth;
+  final DiagnosisCategory? activeFilter;
+
+  const DiseaseWatchSuccess({
+    required this.trends,
+    required this.totalReportMonth,
+    this.activeFilter,
+  });
+
+  @override
+  List<Object?> get props => [trends, totalReportMonth, activeFilter];
+}
+
+class DiseaseWatchEmpty extends DiseaseWatchState {
+  final DiagnosisCategory? activeFilter;
+
+  const DiseaseWatchEmpty({this.activeFilter});
+
+  @override
+  List<Object?> get props => [activeFilter];
+}
+
+class DiseaseWatchError extends DiseaseWatchState {
+  final String message;
+
+  const DiseaseWatchError(this.message);
+
+  @override
+  List<Object?> get props => [message];
+}
+
+// BLoC
+class DiseaseWatchBloc extends Bloc<DiseaseWatchEvent, DiseaseWatchState> {
+  final GetDiseaseTrendsByCropUseCase getDiseaseTrendsByCrop;
+
+  String _currentCropType = '';
+  DiagnosisCategory? _currentFilter;
+  List<DiseaseTrendCard> _allTrends = [];
+
+  DiseaseWatchBloc({required this.getDiseaseTrendsByCrop})
+    : super(DiseaseWatchInitial()) {
+    on<LoadDiseaseWatchRequested>(_onLoadDiseaseWatch);
+    on<FilterByCategoryRequested>(_onFilterByCategory);
+    on<RefreshDiseaseWatchRequested>(_onRefreshDiseaseWatch);
+  }
+
+  Future<void> _onLoadDiseaseWatch(
+    LoadDiseaseWatchRequested event,
+    Emitter<DiseaseWatchState> emit,
+  ) async {
+    emit(DiseaseWatchLoading());
+    _currentCropType = event.cropType;
+    _currentFilter = null;
+
+    final result = await getDiseaseTrendsByCrop(
+      _currentCropType,
+      category: null,
+      limitMonths: 1,
+    );
+
+    result.fold(
+      (failure) {
+        emit(DiseaseWatchError(_getErrorMessage(failure)));
+      },
+      (trends) {
+        _allTrends = trends;
+        if (trends.isEmpty) {
+          emit(const DiseaseWatchEmpty());
+        } else {
+          emit(
+            DiseaseWatchSuccess(
+              trends: trends,
+              totalReportMonth: trends.fold<int>(
+                0,
+                (sum, trend) => sum + trend.reportCount,
+              ),
+              activeFilter: null,
+            ),
+          );
+        }
+      },
+    );
+  }
+
+  Future<void> _onFilterByCategory(
+    FilterByCategoryRequested event,
+    Emitter<DiseaseWatchState> emit,
+  ) async {
+    _currentFilter = event.category;
+
+    if (_allTrends.isEmpty) {
+      emit(DiseaseWatchEmpty(activeFilter: event.category));
+      return;
+    }
+
+    // Filter existing trends by category
+    List<DiseaseTrendCard> filtered;
+    if (event.category == null) {
+      filtered = _allTrends;
+    } else {
+      filtered = _allTrends.where((t) => t.category == event.category).toList();
+    }
+
+    if (filtered.isEmpty) {
+      emit(DiseaseWatchEmpty(activeFilter: event.category));
+    } else {
+      emit(
+        DiseaseWatchSuccess(
+          trends: filtered,
+          totalReportMonth: filtered.fold<int>(
+            0,
+            (sum, trend) => sum + trend.reportCount,
+          ),
+          activeFilter: event.category,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onRefreshDiseaseWatch(
+    RefreshDiseaseWatchRequested event,
+    Emitter<DiseaseWatchState> emit,
+  ) async {
+    emit(DiseaseWatchLoading());
+    _currentCropType = event.cropType;
+
+    final result = await getDiseaseTrendsByCrop(
+      _currentCropType,
+      category: null,
+      limitMonths: 1,
+    );
+
+    result.fold(
+      (failure) {
+        emit(DiseaseWatchError(_getErrorMessage(failure)));
+      },
+      (trends) {
+        _allTrends = trends;
+        if (trends.isEmpty) {
+          emit(const DiseaseWatchEmpty());
+        } else {
+          // Reapply filter if one was active
+          List<DiseaseTrendCard> filtered;
+          if (_currentFilter == null) {
+            filtered = trends;
+          } else {
+            filtered = trends
+                .where((t) => t.category == _currentFilter)
+                .toList();
+          }
+
+          if (filtered.isEmpty) {
+            emit(DiseaseWatchEmpty(activeFilter: _currentFilter));
+          } else {
+            emit(
+              DiseaseWatchSuccess(
+                trends: filtered,
+                totalReportMonth: filtered.fold<int>(
+                  0,
+                  (sum, trend) => sum + trend.reportCount,
+                ),
+                activeFilter: _currentFilter,
+              ),
+            );
+          }
+        }
+      },
+    );
+  }
+
+  String _getErrorMessage(Failure failure) {
+    if (failure is CacheFailure) {
+      return 'Could not load disease reports. Please check your connection.';
+    }
+    if (failure is NetworkFailure) {
+      return 'No internet connection. Showing cached data if available.';
+    }
+    return failure.message;
+  }
+}
+
+
+=== lib/features/disease_watch/data/repositories/disease_watch_repository_impl.dart ===
+import 'package:dartz/dartz.dart';
+import '../../../../core/error/failures.dart';
+import '../datasources/disease_watch_local_data_source.dart';
+import '../datasources/disease_watch_remote_data_source.dart';
+import '../../domain/entities/disease_trend_card.dart';
+import '../../../diagnosis/domain/entities/diagnosis_category.dart';
+import '../../../diagnosis/domain/entities/diagnosis_result.dart';
+import '../../domain/repositories/disease_watch_repository.dart';
+
+class DiseaseWatchRepositoryImpl implements DiseaseWatchRepository {
+  final DiseaseWatchRemoteDataSource remoteDataSource;
+  final DiseaseWatchLocalDataSource localDataSource;
+
+  DiseaseWatchRepositoryImpl({
+    required this.remoteDataSource,
+    required this.localDataSource,
+  });
+
+  @override
+  Future<Either<Failure, List<DiseaseTrendCard>>> getDiseaseTrendsByCrop(
+    String cropType, {
+    DiagnosisCategory? category,
+    int limitMonths = 1,
+  }) async {
+    try {
+      // Fetch from Firebase (with is_public filter and PII stripping)
+      final remoteResult = await remoteDataSource.getDiseaseTrendsByCrop(
+        cropType,
+        category: category?.name,
+        page: 0,
+        limit: 100,
+      );
+
+      final trends = await remoteResult.fold(
+        (failure) async {
+          // On failure, try to load from local cache
+          try {
+            final cachedTrends = await localDataSource.getTrendsByCategory(
+              cropType,
+              category,
+            );
+            return cachedTrends;
+          } catch (_) {
+            throw failure;
+          }
+        },
+        (anonymizedTrends) async {
+          // Convert AnonymizedDiseaseTrendDto to DiseaseTrendCard
+          final converted = anonymizedTrends
+              .map(
+                (dto) => DiseaseTrendCard(
+                  id: dto.id,
+                  diagnosisName: dto.diagnosisName,
+                  diagnosisNameChichewa:
+                      dto.diagnosisName, // TODO: Store in database
+                  category: _mapCategoryStringToEnum(dto.category),
+                  severity: _mapSeverityStringToEnum(dto.severity),
+                  district: dto.district,
+                  reportCount: 1, // Anonymous aggregation doesn't expose counts
+                  recentReportDate: dto.createdAt,
+                  imageUrl: dto.photoUrl,
+                  photoBase64: dto.photoBase64,
+                  treatmentSummary: dto.treatmentAdvice,
+                  preventionSummary: dto.preventionAdvice,
+                  cropType: cropType,
+                ),
+              )
+              .toList();
+
+          // Cache locally for offline access
+          await localDataSource.cacheTrends(cropType, converted);
+
+          return converted;
+        },
+      );
+
+      return Right(trends);
+    } catch (e) {
+      return Left(
+        CacheFailure('Failed to load disease trends: ${e.toString()}'),
+      );
+    }
+  }
+
+  /// Helper: Convert category string to enum.
+  DiagnosisCategory _mapCategoryStringToEnum(String category) {
+    switch (category.toLowerCase()) {
+      case 'pest':
+        return DiagnosisCategory.pest;
+      case 'disease':
+        return DiagnosisCategory.disease;
+      case 'deficiency':
+        return DiagnosisCategory.deficiency;
+      default:
+        return DiagnosisCategory.disease;
+    }
+  }
+
+  /// Helper: Convert severity string to enum.
+  Severity _mapSeverityStringToEnum(String severity) {
+    switch (severity.toLowerCase()) {
+      case 'high':
+        return Severity.high;
+      case 'medium':
+        return Severity.medium;
+      case 'low':
+        return Severity.low;
+      default:
+        return Severity.medium;
+    }
+  }
+}
+
+
+=== lib/features/disease_watch/domain/repositories/disease_watch_repository.dart ===
+import 'package:dartz/dartz.dart';
+import '../../../../core/error/failures.dart';
+import '../entities/disease_trend_card.dart';
+import '../../../diagnosis/domain/entities/diagnosis_category.dart';
+
+abstract class DiseaseWatchRepository {
+  Future<Either<Failure, List<DiseaseTrendCard>>> getDiseaseTrendsByCrop(
+    String cropType, {
+    DiagnosisCategory? category,
+    int limitMonths = 1,
+  });
+}
+
+
+=== lib/features/diagnosis/presentation/bloc/diagnosis_bloc.dart ===
+import 'dart:typed_data';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:equatable/equatable.dart';
+import 'package:uuid/uuid.dart';
+import '../../domain/entities/diagnosis_result.dart';
+import '../../domain/entities/crop_type.dart';
+import '../../domain/usecases/analyze_image_usecase.dart';
+import '../../domain/usecases/get_history_usecase.dart';
+import '../../domain/usecases/save_diagnosis_usecase.dart';
+
+abstract class DiagnosisEvent extends Equatable {
+  const DiagnosisEvent();
+  @override
+  List<Object?> get props => [];
+}
+
+class DiagnosisAnalyzeRequested extends DiagnosisEvent {
+  final String imagePath;
+  final Uint8List imageBytes;
+  final CropType cropType;
+  final String? userId;
+
+  const DiagnosisAnalyzeRequested(
+    this.imagePath, {
+    required this.imageBytes,
+    required this.cropType,
+    this.userId,
+  });
+
+  @override
+  List<Object?> get props => [imagePath, cropType, userId];
+}
+
+class DiagnosisHistoryRequested extends DiagnosisEvent {
+  final String? userId;
+  const DiagnosisHistoryRequested({this.userId});
+  @override
+  List<Object?> get props => [userId];
+}
+
+class DiagnosisSaveRequested extends DiagnosisEvent {
+  final DiagnosisResult result;
+  const DiagnosisSaveRequested(this.result);
+  @override
+  List<Object?> get props => [result];
+}
+
+class DiagnosisReset extends DiagnosisEvent {}
+
+abstract class DiagnosisState extends Equatable {
+  const DiagnosisState();
+  @override
+  List<Object?> get props => [];
+}
+
+class DiagnosisInitial extends DiagnosisState {}
+
+class DiagnosisLoading extends DiagnosisState {}
+
+class DiagnosisAnalyzing extends DiagnosisState {
+  final String imagePath;
+  const DiagnosisAnalyzing(this.imagePath);
+  @override
+  List<Object?> get props => [imagePath];
+}
+
+class DiagnosisSuccess extends DiagnosisState {
+  final DiagnosisResult result;
+  const DiagnosisSuccess(this.result);
+  @override
+  List<Object?> get props => [result];
+}
+
+class DiagnosisHistoryLoaded extends DiagnosisState {
+  final List<DiagnosisResult> history;
+  const DiagnosisHistoryLoaded(this.history);
+  @override
+  List<Object?> get props => [history];
+}
+
+class DiagnosisError extends DiagnosisState {
+  final String message;
+  const DiagnosisError(this.message);
+  @override
+  List<Object?> get props => [message];
+}
+
+class DiagnosisBloc extends Bloc<DiagnosisEvent, DiagnosisState> {
+  static const Uuid _uuid = Uuid();
+  final AnalyzeImageUseCase analyzeImageUseCase;
+  final GetHistoryUseCase getHistoryUseCase;
+  final SaveDiagnosisUseCase saveDiagnosisUseCase;
+
+  DiagnosisBloc({
+    required this.analyzeImageUseCase,
+    required this.getHistoryUseCase,
+    required this.saveDiagnosisUseCase,
+  }) : super(DiagnosisInitial()) {
+    on<DiagnosisAnalyzeRequested>(_onAnalyzeRequested);
+    on<DiagnosisHistoryRequested>(_onHistoryRequested);
+    on<DiagnosisSaveRequested>(_onSaveRequested);
+    on<DiagnosisReset>(_onReset);
+  }
+
+  Future<void> _onAnalyzeRequested(
+    DiagnosisAnalyzeRequested event,
+    Emitter<DiagnosisState> emit,
+  ) async {
+    emit(DiagnosisAnalyzing(event.imagePath));
+
+    final result = await analyzeImageUseCase(
+      event.imagePath,
+      event.cropType,
+      imageBytes: event.imageBytes,
+    );
+
+    await result.fold(
+      (failure) async => emit(DiagnosisError(failure.message)),
+      (diagnosis) async {
+        final enrichedDiagnosis = diagnosis.copyWith(
+          id: diagnosis.id.isEmpty ? _uuid.v4() : diagnosis.id,
+          userId: event.userId ?? diagnosis.userId,
+          timestamp: DateTime.now(),
+        );
+
+        // Save to Hive — NEVER block the result if save fails
+        try {
+          final saveResult = await saveDiagnosisUseCase(enrichedDiagnosis);
+          saveResult.fold(
+            (failure) => print('Save error: ${failure.message}'),
+            (_) {},
+          );
+        } catch (e) {
+          print('Save error: $e');
+        }
+
+        emit(DiagnosisSuccess(enrichedDiagnosis));
+      },
+    );
+  }
+
+  Future<void> _onHistoryRequested(
+    DiagnosisHistoryRequested event,
+    Emitter<DiagnosisState> emit,
+  ) async {
+    emit(DiagnosisLoading());
+    final result = await getHistoryUseCase(event.userId);
+    result.fold(
+      (failure) => emit(DiagnosisError(failure.message)),
+      (history) => emit(DiagnosisHistoryLoaded(history)),
+    );
+  }
+
+  Future<void> _onSaveRequested(
+    DiagnosisSaveRequested event,
+    Emitter<DiagnosisState> emit,
+  ) async {
+    try {
+      await saveDiagnosisUseCase(event.result);
+    } catch (e) {
+      print('[DiagnosisBloc] Manual save failed: $e');
+    }
+  }
+
+  void _onReset(DiagnosisReset event, Emitter<DiagnosisState> emit) {
+    emit(DiagnosisInitial());
+  }
+}
+
+

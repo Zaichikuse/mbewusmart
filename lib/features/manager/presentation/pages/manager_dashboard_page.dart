@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/di/injection_container.dart' as di;
+import '../../../../shared/widgets/pressable.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../alerts/presentation/bloc/alerts_bloc.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
@@ -10,6 +11,7 @@ import '../../../reports/data/services/report_service.dart';
 import '../../../reports/domain/entities/diagnosis_report.dart';
 import 'manager_reports_page.dart';
 import 'manager_alerts_page.dart';
+import 'manager_analytics_page.dart';
 
 class ManagerDashboardPage extends StatefulWidget {
   const ManagerDashboardPage({super.key});
@@ -64,6 +66,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildWelcomeCard(isChichewa),
+              const SizedBox(height: 16),
+              _buildAnalyticsButton(isChichewa),
               const SizedBox(height: 20),
               _buildOverviewStats(isChichewa),
               const SizedBox(height: 24),
@@ -88,6 +92,33 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               const SizedBox(height: 12),
               _buildReportsList(isChichewa),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnalyticsButton(bool isChichewa) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const ManagerAnalyticsPage()),
+          );
+        },
+        icon: const Icon(Icons.insights),
+        label: Text(
+          isChichewa
+              ? 'Onani Kafukufuku Yense'
+              : 'View Full Analytics Dashboard',
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppTheme.primaryGreen,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
         ),
       ),
@@ -171,8 +202,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             }
             if (alertsState is AlertsLoaded) {
               totalAlerts = alertsState.alerts.length;
-              // FIXED: Use officerResponse to determine resolved/pending
-              // (matches the logic in ManagerAlertsPage)
               resolvedAlerts = alertsState.alerts
                   .where(
                     (a) =>
@@ -233,7 +262,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                         value: pendingAlerts.toString(),
                         color: AppTheme.diseaseRed,
                         onTap: () {
-                          // FIXED: Now opens ManagerAlertsPage filtered to pending
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const ManagerAlertsPage(
@@ -252,7 +280,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                         value: resolvedAlerts.toString(),
                         color: AppTheme.healthyGreen,
                         onTap: () {
-                          // FIXED: Now opens ManagerAlertsPage filtered to resolved
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const ManagerAlertsPage(
@@ -280,39 +307,41 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     required Color color,
     VoidCallback? onTap,
   }) {
-    return Material(
+    final card = Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 28),
-              const SizedBox(height: 8),
-              Text(value, style: AppTextStyles.headingMedium),
-              Text(
-                label,
-                style: AppTextStyles.caption,
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 8),
+            Text(value, style: AppTextStyles.headingMedium),
+            Text(
+              label,
+              style: AppTextStyles.caption,
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
     );
+
+    if (onTap == null) {
+      return card;
+    }
+
+    return Pressable(onTap: onTap, child: card);
   }
 
   Widget _buildDistrictStats(bool isChichewa) {

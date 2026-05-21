@@ -39,6 +39,14 @@ import '../services/ai_assistant_service.dart';
 import '../services/fcm_notification_service.dart';
 import '../services/user_directory_service.dart';
 import '../../features/reports/data/services/report_service.dart';
+import '../../features/disease_watch/data/datasources/disease_watch_local_data_source.dart';
+import '../../features/disease_watch/data/datasources/disease_watch_remote_data_source.dart';
+import '../../features/disease_watch/data/repositories/disease_watch_repository_impl.dart';
+import '../../features/disease_watch/domain/repositories/disease_watch_repository.dart';
+import '../../features/disease_watch/domain/usecases/get_disease_trends_by_crop_usecase.dart';
+import '../../features/disease_watch/presentation/bloc/disease_watch_bloc.dart';
+import '../services/diagnosis_category_seeder.dart';
+import '../services/diagnosis_category_cache.dart';
 
 final sl = GetIt.instance;
 
@@ -50,6 +58,7 @@ Future<void> initDependencies() async {
   await Hive.openBox(AppConstants.settingsBox);
   await Hive.openBox(AppConstants.cacheBox);
   await Hive.openBox(AppConstants.alertsBox);
+  await Hive.openBox('diseaseWatchBox');
 
   sl.registerLazySingleton<AuthLocalDataSource>(
     () => AuthLocalDataSourceImpl(userBox),
@@ -69,6 +78,22 @@ Future<void> initDependencies() async {
     () => AlertsLocalDataSourceImpl(alertsBox),
   );
 
+  sl.registerLazySingleton<DiseaseWatchLocalDataSource>(
+    () => DiseaseWatchLocalDataSourceImpl(diseaseWatchBox),
+  );
+
+  sl.registerLazySingleton<DiagnosisCategoryCache>(
+    () => DiagnosisCategoryCache(),
+  );
+
+  sl.registerLazySingleton<DiseaseWatchRemoteDataSource>(
+    () => DiseaseWatchRemoteDataSource(categoryCache: sl()),
+  );
+
+  sl.registerLazySingleton<DiagnosisCategorySeeder>(
+    () => DiagnosisCategorySeeder(),
+  );
+
   sl.registerLazySingleton<AuthRepository>(
     () => AuthRepositoryImpl(sl(), sl()),
   );
@@ -85,6 +110,13 @@ Future<void> initDependencies() async {
     () => LocationRepositoryImpl(malawiDataSource: sl()),
   );
 
+  sl.registerLazySingleton<DiseaseWatchRepository>(
+    () => DiseaseWatchRepositoryImpl(
+      remoteDataSource: sl(),
+      localDataSource: sl(),
+    ),
+  );
+
   sl.registerLazySingleton(() => LoginUseCase(sl()));
   sl.registerLazySingleton(() => RegisterUseCase(sl()));
   sl.registerLazySingleton(() => LogoutUseCase(sl()));
@@ -98,6 +130,8 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton(() => GetNearestExtensionOfficerUseCase(sl()));
   sl.registerLazySingleton(() => GetNearestAgroDealerUseCase(sl()));
 
+  sl.registerLazySingleton(() => GetDiseaseTrendsByCropUseCase(sl()));
+
   sl.registerFactory(
     () => AuthBloc(
       loginUseCase: sl(),
@@ -105,6 +139,7 @@ Future<void> initDependencies() async {
       logoutUseCase: sl(),
       getCurrentUserUseCase: sl(),
       userDirectoryService: sl(),
+      localDataSource: sl(),
     ),
   );
 
@@ -130,6 +165,8 @@ Future<void> initDependencies() async {
 
   sl.registerFactory(() => ConnectivityBloc());
 
+  sl.registerFactory(() => DiseaseWatchBloc(getDiseaseTrendsByCrop: sl()));
+
   // Messaging
   sl.registerLazySingleton<MessagingRepository>(() => MessagingService());
 
@@ -150,6 +187,15 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton(
     () => AiAssistantService(cacheBox: cacheBox, malawiDataSource: sl()),
   );
+
+  // Initialize diagnosis category seeder (delayed to allow other services to initialize)
+  Future.delayed(const Duration(milliseconds: 500), () async {
+    try {
+      await sl<DiagnosisCategorySeeder>().seed();
+    } catch (e) {
+      print('[DI] Error seeding diagnosis categories: $e');
+    }
+  });
 }
 
 Box get userBox => Hive.box(AppConstants.userBox);
@@ -157,3 +203,4 @@ Box get diagnosisBox => Hive.box(AppConstants.diagnosisBox);
 Box get settingsBox => Hive.box(AppConstants.settingsBox);
 Box get cacheBox => Hive.box(AppConstants.cacheBox);
 Box get alertsBox => Hive.box(AppConstants.alertsBox);
+Box get diseaseWatchBox => Hive.box('diseaseWatchBox');
