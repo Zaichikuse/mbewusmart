@@ -135,3 +135,6 @@ claude_files_dump*.txt
 security_audit.txt
 analyze_output.txt
 *_audit.txt
+
+claude_files.txt
+*.txt
