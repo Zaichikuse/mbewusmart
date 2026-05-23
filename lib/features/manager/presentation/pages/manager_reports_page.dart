@@ -295,7 +295,7 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
               const SizedBox(height: 8),
               _kv(
                 isChichewa ? 'Boma' : 'District',
-                (report.district ?? '').trim().isEmpty ? '-' : report.district!,
+                (report.district ?? '').trim().isEmpty ? '-' : report.district ?? '',
               ),
               _kv(
                 isChichewa ? 'Malo Enieni' : 'Place',
@@ -316,7 +316,7 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
                 '${(report.confidence * 100).toStringAsFixed(0)}%',
               ),
 
-              if ((report.notes ?? '').trim().isNotEmpty) ...[
+              if (report.notes.trim().isNotEmpty) ...[
                 const SizedBox(height: 16),
                 _sectionTitle(isChichewa ? 'Mawu' : 'Notes', Icons.notes),
                 const SizedBox(height: 8),
@@ -328,7 +328,7 @@ class _ManagerReportsPageState extends State<ManagerReportsPage> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.grey.shade300),
                   ),
-                  child: Text(report.notes!),
+                  child: Text(report.notes),
                 ),
               ],
 
@@ -440,7 +440,7 @@ class _DiagnosisTile extends StatelessWidget {
                 children: [
                   Icon(Icons.location_on, size: 12, color: AppTheme.textMuted),
                   const SizedBox(width: 2),
-                  Text(report.district!, style: AppTextStyles.caption),
+                  Text(report.district ?? '', style: AppTextStyles.caption),
                 ],
               ),
             ],

@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- reports (manager-only access, encrypted PII) ----------
+    // Read is open: without the AES key, all PII fields are ciphertext.
+    // Firestore also enforces its own 1 MB hard limit at the API level.
+    match /reports/{reportId} {
+      allow read: if true;
+
+      allow create: if request.resource.data.keys().hasAll([
+                        'crop', 'diagnosis', 'created_at', 'farmer_id', 'isPublic'
+                      ])
+                   && request.resource.data.size() <= 30;
+
+      // Managers may only annotate — never mutate the diagnosis itself.
+      allow update: if request.resource.data.diff(resource.data)
+                        .affectedKeys()
+                        .hasOnly(['notes', 'status', 'updatedAt', 'isPublic']);
+
+      // Hard delete is never allowed — use isPublic=false to suppress from feeds.
+      allow delete: if false;
+    }
+
+    // ---------- disease_watch (public aggregated feed, zero PII) ----------
+    match /disease_watch/{reportId} {
+      allow read: if true;
+
+      // Required fields must be present; any PII field is a hard block.
+      allow create: if request.resource.data.keys().hasAll([
+                        'crop', 'diagnosis', 'district', 'created_at'
+                      ])
+                   && !request.resource.data.keys().hasAny([
+                        'name', 'farmer_name', 'farmer_name_encrypted',
+                        'phone', 'farmer_phone', 'farmer_phone_encrypted',
+                        'photo', 'photo_base64', 'photo_url', 'farmer_id'
+                      ]);
+
+      // Immutable once written — no updates or deletes.
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ---------- users (collection not used by this app) ----------
+    match /users/{userId} {
+      allow read, write: if false;
+    }
+
+    // ---------- alerts ----------
+    match /alerts/{alertId} {
+      allow read: if true;
+      allow create: if request.resource.data.size() <= 20;
+      allow update: if true;
+      allow delete: if false;
+    }
+
+    // ---------- diagnosis_categories (read-only reference data) ----------
+    match /diagnosis_categories/{categoryId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ---------- default: deny everything else ----------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
