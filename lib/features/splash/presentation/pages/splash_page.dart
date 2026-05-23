@@ -144,13 +144,10 @@ class _SplashPageState extends State<SplashPage>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.eco, size: 80, color: Colors.white),
+              Image.asset(
+                'assets/icons/mbewusmart_logo.png',
+                width: 120,
+                height: 120,
               ),
               const SizedBox(height: 24),
               const Text(
