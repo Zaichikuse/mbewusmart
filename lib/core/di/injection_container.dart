@@ -38,6 +38,7 @@ import '../../features/notifications/data/services/notification_service.dart';
 import '../services/ai_assistant_service.dart';
 import '../services/fcm_notification_service.dart';
 import '../services/user_directory_service.dart';
+import '../services/hive_encryption_service.dart';
 import '../../features/reports/data/services/report_service.dart';
 import '../../features/disease_watch/data/datasources/disease_watch_local_data_source.dart';
 import '../../features/disease_watch/data/datasources/disease_watch_remote_data_source.dart';
@@ -53,12 +54,16 @@ final sl = GetIt.instance;
 Future<void> initDependencies() async {
   await Hive.initFlutter();
 
-  await Hive.openBox(AppConstants.userBox);
-  await Hive.openBox(AppConstants.diagnosisBox);
-  await Hive.openBox(AppConstants.settingsBox);
-  await Hive.openBox(AppConstants.cacheBox);
-  await Hive.openBox(AppConstants.alertsBox);
-  await Hive.openBox('diseaseWatchBox');
+  // 🔐 Get the AES-256 encryption cipher (key lives in Android Keystore)
+  // All Hive boxes below are now encrypted at rest.
+  final cipher = await HiveEncryptionService.getCipher();
+
+  await Hive.openBox(AppConstants.userBox, encryptionCipher: cipher);
+  await Hive.openBox(AppConstants.diagnosisBox, encryptionCipher: cipher);
+  await Hive.openBox(AppConstants.settingsBox, encryptionCipher: cipher);
+  await Hive.openBox(AppConstants.cacheBox, encryptionCipher: cipher);
+  await Hive.openBox(AppConstants.alertsBox, encryptionCipher: cipher);
+  await Hive.openBox('diseaseWatchBox', encryptionCipher: cipher);
 
   sl.registerLazySingleton<AuthLocalDataSource>(
     () => AuthLocalDataSourceImpl(userBox),
@@ -193,6 +198,7 @@ Future<void> initDependencies() async {
     try {
       await sl<DiagnosisCategorySeeder>().seed();
     } catch (e) {
+      // ignore: avoid_print
       print('[DI] Error seeding diagnosis categories: $e');
     }
   });

@@ -1,4 +1,4 @@
-﻿name: mbewu_smart
+name: mbewu_smart
 description: "MbewuSmart - Crop disease detection app for Malawi farmers"
 publish_to: 'none'
 version: 1.0.0+1
@@ -77,6 +77,10 @@ dependencies:
   pdf: ^3.10.8
   printing: ^5.12.0
   share_plus: ^10.0.2
+  crypto: ^3.0.7
+  bcrypt: ^1.2.0
+  encrypt: ^5.0.3
+  flutter_secure_storage: ^10.2.0
 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.1

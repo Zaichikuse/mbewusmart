@@ -156,7 +156,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isChichewa ? 'Welcomer' : 'Welcome',
+                      isChichewa ? 'Mwalandiridwa' : 'Welcome',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
@@ -178,7 +178,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           const SizedBox(height: 12),
           Text(
             isChichewa
-                ? 'Onani mbiri ya aMlimi onse m district'
+                ? 'Onani mbiri ya alimi onse mu boma lanu'
                 : 'Monitor all farmers and extension officers in your district',
             style: const TextStyle(color: Colors.white70),
           ),
@@ -344,57 +344,199 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     return Pressable(onTap: onTap, child: card);
   }
 
+  // ============================================
+  // REAL DISTRICT OVERVIEW — pulls live from Firestore
+  // ============================================
   Widget _buildDistrictStats(bool isChichewa) {
-    final districts = [
-      {'name': 'Blantyre', 'cases': 45, 'officers': 2},
-      {'name': 'Lilongwe', 'cases': 38, 'officers': 2},
-      {'name': 'Mzuzu', 'cases': 22, 'officers': 1},
-      {'name': 'Zomba', 'cases': 18, 'officers': 1},
-      {'name': 'Mulanje', 'cases': 15, 'officers': 1},
-      {'name': 'Kasungu', 'cases': 12, 'officers': 1},
-    ];
+    return StreamBuilder<List<DiagnosisReport>>(
+      stream: _reportService.watchAllReports(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Center(child: CircularProgressIndicator()),
+          );
+        }
 
+        final reports = snapshot.data ?? const [];
+
+        if (reports.isEmpty) {
+          return _emptyDistrictCard(
+            isChichewa
+                ? 'Palibe data ya maboma panopa.'
+                : 'No district data yet.',
+          );
+        }
+
+        // Group reports by district
+        final districtCounts = <String, int>{};
+        for (final r in reports) {
+          final district = (r.district ?? '').trim();
+          if (district.isEmpty || district.toLowerCase() == 'unknown') continue;
+          districtCounts[district] = (districtCounts[district] ?? 0) + 1;
+        }
+
+        if (districtCounts.isEmpty) {
+          return _emptyDistrictCard(
+            isChichewa
+                ? 'Palibe data ya maboma yokhala ndi malo.'
+                : 'No district data with locations yet.',
+          );
+        }
+
+        // Sort districts: highest case count first
+        final sortedDistricts = districtCounts.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+
+        final maxCount = sortedDistricts.first.value;
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: Text(
+                        isChichewa ? 'Boma' : 'District',
+                        style: AppTextStyles.caption.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textMuted,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 4,
+                      child: Text(
+                        isChichewa ? 'Zopima' : 'Cases',
+                        style: AppTextStyles.caption.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textMuted,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(width: 40),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // District rows
+              ...sortedDistricts.map((entry) {
+                final district = entry.key;
+                final count = entry.value;
+                final percentage = count / maxCount;
+                final severityColor = count >= 5
+                    ? AppTheme.diseaseRed
+                    : count >= 3
+                    ? AppTheme.warningAmber
+                    : AppTheme.healthyGreen;
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: severityColor,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                district,
+                                style: AppTextStyles.bodyMedium,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        flex: 4,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: percentage,
+                              minHeight: 8,
+                              backgroundColor: Colors.grey.shade200,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                severityColor,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 40,
+                        child: Text(
+                          count.toString(),
+                          style: AppTextStyles.bodyMedium.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: severityColor,
+                          ),
+                          textAlign: TextAlign.right,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _emptyDistrictCard(String message) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Column(
-        children: districts.map((d) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    d['name'] as String,
-                    style: AppTextStyles.bodyMedium,
-                  ),
-                ),
-                Expanded(
-                  child: Row(
-                    children: [
-                      Icon(Icons.people, size: 16, color: AppTheme.textMuted),
-                      const SizedBox(width: 4),
-                      Text('${d['officers']}', style: AppTextStyles.bodySmall),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Row(
-                    children: [
-                      Icon(Icons.eco, size: 16, color: AppTheme.primaryGreen),
-                      const SizedBox(width: 4),
-                      Text('${d['cases']}', style: AppTextStyles.bodySmall),
-                    ],
-                  ),
-                ),
-              ],
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: AppTheme.textMuted),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppTheme.textMuted,
+              ),
             ),
-          );
-        }).toList(),
+          ),
+        ],
       ),
     );
   }

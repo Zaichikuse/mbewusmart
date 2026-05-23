@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/services/pii_encryption_service.dart';
+
 class DiagnosisReport extends Equatable {
   final String id;
   final String farmerId;
@@ -81,11 +83,42 @@ class DiagnosisReport extends Equatable {
         map['diagnosis']?.toString() ?? map['diagnosisName']?.toString() ?? '';
     final cropType =
         map['crop']?.toString() ?? map['cropType']?.toString() ?? '';
+
+    // Try to decrypt encrypted PII fields. If the key isn't warmed up yet,
+    // they'll show a placeholder until the next refresh.
+    final encryptedName = map['farmer_name_encrypted']?.toString();
+    final encryptedPhone = map['farmer_phone_encrypted']?.toString();
+
+    String farmerName = '';
+    String farmerPhone = '';
+
+    if (encryptedName != null && encryptedName.isNotEmpty) {
+      farmerName =
+          PiiEncryptionService.decryptStringSync(encryptedName) ??
+          '🔒 Encrypted';
+    } else {
+      // Legacy plaintext fallback (for old reports created before encryption)
+      farmerName =
+          map['farmerName']?.toString() ?? map['farmer_name']?.toString() ?? '';
+    }
+
+    if (encryptedPhone != null && encryptedPhone.isNotEmpty) {
+      farmerPhone =
+          PiiEncryptionService.decryptStringSync(encryptedPhone) ??
+          '🔒 Encrypted';
+    } else {
+      farmerPhone =
+          map['farmerPhone']?.toString() ??
+          map['farmer_phone']?.toString() ??
+          '';
+    }
+
     return DiagnosisReport(
       id: map['id'] ?? '',
-      farmerId: map['farmerId'] ?? '',
-      farmerName: map['farmerName'] ?? '',
-      farmerPhone: map['farmerPhone'] ?? '',
+      farmerId:
+          map['farmerId']?.toString() ?? map['farmer_id']?.toString() ?? '',
+      farmerName: farmerName,
+      farmerPhone: farmerPhone,
       cropType: cropType,
       diagnosisName: diagnosisName,
       confidence: (map['confidence'] ?? 0.0).toDouble(),

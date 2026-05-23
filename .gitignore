@@ -121,3 +121,17 @@ app.*.symbols
 !**/ios/**/default.perspectivev3
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
 !/dev/ci/**/Gemfile.lock
+
+# Internal dump files (never commit)
+auth_files.txt
+claude_files_dump*.txt
+security_audit.txt
+analyze_output.txt
+*_audit.txt
+
+# Internal session dump files (never commit)
+auth_files.txt
+claude_files_dump*.txt
+security_audit.txt
+analyze_output.txt
+*_audit.txt

@@ -46,7 +46,11 @@ class _LoginPageState extends State<LoginPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 40),
-                Icon(Icons.eco, size: 80, color: AppTheme.primaryGreen),
+                Image.asset(
+                  'assets/icons/mbewusmart_logo.png',
+                  width: 100,
+                  height: 100,
+                ),
                 const SizedBox(height: 16),
                 Text(
                   AppUtils.getGreeting(context),

@@ -41,18 +41,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(state.copyWith(status: AuthStatus.loading));
-
     final result = await getCurrentUserUseCase();
     await result.fold(
-      (_) async {
-        emit(
-          state.copyWith(
-            status: AuthStatus.unauthenticated,
-            clearUser: true,
-            clearErrorMessage: true,
-          ),
-        );
-      },
+      (_) async => emit(
+        state.copyWith(
+          status: AuthStatus.unauthenticated,
+          clearUser: true,
+          clearErrorMessage: true,
+        ),
+      ),
       (user) async {
         if (user == null) {
           emit(
@@ -64,7 +61,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           );
           return;
         }
-
         unawaited(_syncUser(user, 'auth check'));
         emit(
           state.copyWith(
@@ -82,21 +78,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(state.copyWith(status: AuthStatus.loading));
-
     final result = await loginUseCase(event.phoneNumber, event.pin);
-
     await result.fold(
-      (failure) async {
-        emit(
-          state.copyWith(
-            status: AuthStatus.error,
-            errorMessage: failure.message,
-          ),
-        );
-      },
-      (user) async {
-        emit(state.copyWith(status: AuthStatus.authenticated, user: user));
-      },
+      (failure) async => emit(
+        state.copyWith(status: AuthStatus.error, errorMessage: failure.message),
+      ),
+      (user) async =>
+          emit(state.copyWith(status: AuthStatus.authenticated, user: user)),
     );
   }
 
@@ -105,7 +93,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(state.copyWith(status: AuthStatus.loading));
-
     final result = await registerUseCase(
       fullName: event.fullName,
       phoneNumber: event.phoneNumber,
@@ -113,19 +100,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       role: event.role,
       pin: event.pin,
     );
-
     await result.fold(
-      (failure) async {
-        emit(
-          state.copyWith(
-            status: AuthStatus.error,
-            errorMessage: failure.message,
-          ),
-        );
-      },
-      (user) async {
-        emit(state.copyWith(status: AuthStatus.authenticated, user: user));
-      },
+      (failure) async => emit(
+        state.copyWith(status: AuthStatus.error, errorMessage: failure.message),
+      ),
+      (user) async =>
+          emit(state.copyWith(status: AuthStatus.authenticated, user: user)),
     );
   }
 
@@ -134,9 +114,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(state.copyWith(status: AuthStatus.loading));
-
     final result = await logoutUseCase();
-
     result.fold(
       (failure) => emit(
         state.copyWith(status: AuthStatus.error, errorMessage: failure.message),
@@ -177,29 +155,33 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       return;
     }
 
-    // Verify the current PIN matches
-    if (currentUser.pin != event.currentPin) {
-      emit(
-        state.copyWith(
-          status: AuthStatus.error,
-          errorMessage: 'Current PIN is incorrect',
-        ),
-      );
-      // Reset back to authenticated so the user can try again
-      await Future.delayed(const Duration(milliseconds: 100));
-      emit(
-        state.copyWith(
-          status: AuthStatus.authenticated,
-          clearErrorMessage: true,
-        ),
-      );
-      return;
-    }
-
     try {
-      // Update the PIN and save through the local data source (Hive)
-      final updatedUser = currentUser.copyWith(pin: event.newPin);
-      await localDataSource.saveUser(updatedUser);
+      final isCurrentPinValid = await localDataSource.verifyPin(
+        phoneNumber: currentUser.phoneNumber,
+        pin: event.currentPin,
+      );
+
+      if (!isCurrentPinValid) {
+        emit(
+          state.copyWith(
+            status: AuthStatus.error,
+            errorMessage: 'Current PIN is incorrect',
+          ),
+        );
+        await Future.delayed(const Duration(milliseconds: 100));
+        emit(
+          state.copyWith(
+            status: AuthStatus.authenticated,
+            clearErrorMessage: true,
+          ),
+        );
+        return;
+      }
+
+      final updatedUser = await localDataSource.changePin(
+        userId: currentUser.id,
+        newPin: event.newPin,
+      );
 
       emit(
         state.copyWith(

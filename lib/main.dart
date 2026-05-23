@@ -3,8 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'core/localization/fallback_material_localizations_delegate.dart';
+import 'features/auth/data/datasources/auth_local_datasource.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_event.dart';
 import 'features/settings/presentation/bloc/settings_bloc.dart';
@@ -18,6 +18,7 @@ import 'shared/routes/app_router.dart';
 import 'core/di/injection_container.dart' as di;
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
+import 'core/services/pii_encryption_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,16 +29,19 @@ void main() async {
     debugPrint('Firebase initialization failed: $e');
   }
 
-  // ONE-TIME RESET so onboarding shows on this build even if
-  // the flag was set by a previous attempt.
-  // DELETE THIS LINE after confirming onboarding appears once.
+  // Initialize dependencies FIRST so Hive boxes (encrypted) are open
+  await di.initDependencies();
+  await PiiEncryptionService.warmUp();
 
+  // Now we can read auth state from encrypted Hive
   final seenOnboarding = await OnboardingPrefs.hasSeenOnboarding();
-  final loggedIn = FirebaseAuth.instance.currentUser != null;
+  final localUser = await di.sl<AuthLocalDataSource>().getCurrentUser();
+  final loggedIn = localUser != null;
+
   final String initialRoute = !seenOnboarding
       ? '/onboarding'
       : (!loggedIn ? '/login' : '/home');
-  await di.initDependencies();
+
   runApp(MbewuSmartApp(initialRoute: initialRoute));
 }
 
@@ -98,17 +102,14 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
       ],
       child: BlocBuilder<SettingsBloc, SettingsState>(
         builder: (context, settingsState) {
-          // Dynamically set locale based on SettingsBloc state
           Locale locale;
           if (settingsState is SettingsLoaded) {
-            // Use actual language from settings
             if (settingsState.languageCode == 'ny') {
               locale = const Locale('ny', 'MW');
             } else {
               locale = const Locale('en');
             }
           } else {
-            // Default to Chichewa while loading
             locale = const Locale('ny', 'MW');
           }
 
@@ -119,7 +120,6 @@ class _MbewuSmartAppState extends State<MbewuSmartApp> {
             locale: locale,
             supportedLocales: const [Locale('en'), Locale('ny', 'MW')],
             localeResolutionCallback: (deviceLocale, supportedLocales) {
-              // Support both 'ny' and 'ny_MW'
               for (final supported in supportedLocales) {
                 if (supported.languageCode == deviceLocale?.languageCode) {
                   return supported;

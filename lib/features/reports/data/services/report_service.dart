@@ -4,8 +4,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/services/anonymous_id_service.dart';
 import '../../../../core/services/diagnosis_category_cache.dart';
 import '../../../../core/services/fcm_notification_service.dart';
+import '../../../../core/services/pii_encryption_service.dart';
 import '../../../../core/services/user_directory_service.dart';
 import '../../../../shared/utils/image_encoder.dart';
 import '../../../auth/domain/entities/user.dart';
@@ -40,7 +42,7 @@ class ReportService {
     return db
         .collection('reports')
         .where('extensionOfficerId', isEqualTo: officerId)
-        .orderBy('timestamp', descending: true)
+        .orderBy('created_at', descending: true)
         .snapshots()
         .map(
           (snapshot) => snapshot.docs
@@ -54,7 +56,7 @@ class ReportService {
     if (db == null) return Stream.value(const []);
     return db
         .collection('reports')
-        .orderBy('timestamp', descending: true)
+        .orderBy('created_at', descending: true)
         .snapshots()
         .map(
           (snapshot) => snapshot.docs
@@ -75,46 +77,62 @@ class ReportService {
       throw Exception('Firebase is not initialized.');
     }
 
-    // FIX: Use the farmer passed in from ScanPage's AuthBloc instead of
-    // checking FirebaseAuth.instance.currentUser. The two auth sources
-    // can drift out of sync, but AuthBloc is the source of truth in this
-    // app because that's what ScanPage already validated.
     if (farmer.id.trim().isEmpty) {
       throw Exception('Farmer ID missing. Please sign in again.');
     }
 
-    final doc = db.collection('reports').doc();
+    // Get the anonymous device ID (NOT linked to phone/name)
+    final anonId = await AnonymousIdService.getAnonymousId();
 
+    final reportsDoc = db.collection('reports').doc();
+    final diseaseWatchDoc = db.collection('disease_watch').doc(reportsDoc.id);
+
+    // Encode photo
     String? photoBase64;
     try {
       final imageBytes = await _readScanImageBytes(diagnosis.imagePath);
       photoBase64 = await ImageEncoder.encodeForFirestore(imageBytes);
-      debugPrint(
-        '[ReportService] Encoded photo size: ${photoBase64.length} chars (~${(photoBase64.length * 0.75 / 1024).toStringAsFixed(0)} KB)',
-      );
     } catch (e) {
       debugPrint('[ReportService] Photo encoding failed: $e');
     }
 
-    final crop = diagnosis.cropType.name;
-    final farmerRegion = location?.district ?? farmer.district ?? 'Unknown';
+    final crop = diagnosis.cropType.name.toLowerCase();
+    final district = AnonymousIdService.sanitizeDistrict(
+      location?.district ?? farmer.district,
+    );
     final treatmentText = diagnosis.treatment ?? diagnosis.recommendation ?? '';
     final preventionText = diagnosis.prevention ?? '';
-    final reportData = {
-      'crop': crop.toLowerCase(),
+
+    // 🔐 Encrypt PII before storing in the manager-only reports collection
+    final encryptedName = await PiiEncryptionService.encryptString(
+      farmer.fullName,
+    );
+    final encryptedPhone = await PiiEncryptionService.encryptString(
+      farmer.phoneNumber,
+    );
+
+    // ============================================
+    // COLLECTION 1: reports (manager-only, encrypted PII)
+    // ============================================
+    final reportData = <String, dynamic>{
+      'crop': crop,
       'diagnosis': diagnosis.diagnosisName,
       'diagnosis_chichewa': diagnosis.diagnosisNameChichewa,
       'diagnosis_type': diagnosis.type.name,
       'severity': diagnosis.severity.name,
       'confidence': diagnosis.confidence,
-      'symptoms': diagnosis.causingFactors ?? diagnosis.recommendation ?? '',
+      'symptoms': diagnosis.causingFactors ?? '',
       'causing_factors': diagnosis.causingFactors ?? '',
       'treatment': treatmentText,
       'prevention': preventionText,
       'photo_base64': photoBase64,
-      'region': farmerRegion,
-      'farmer_id': farmer.id,
-      'farmer_name': farmer.fullName,
+      'region': district ?? 'Unknown',
+      'district': district,
+      // 🔐 Anonymous ID instead of farmer.id
+      'farmer_id': anonId,
+      // 🔐 Name + phone are AES-256 encrypted
+      'farmer_name_encrypted': encryptedName,
+      'farmer_phone_encrypted': encryptedPhone,
       'created_at': FieldValue.serverTimestamp(),
       'extensionOfficerId': nearestOfficer?.id,
       'latitude': location?.latitude ?? diagnosis.latitude,
@@ -128,18 +146,52 @@ class ReportService {
       ].join('\n'),
       'photo_url': null,
       'isPublic': isPublic,
+      'status': 'pending',
     };
 
-    await doc.set(reportData);
+    // ============================================
+    // COLLECTION 2: disease_watch (public, ZERO PII)
+    // ============================================
+    final diseaseWatchData = <String, dynamic>{
+      'crop': crop,
+      'diagnosis': diagnosis.diagnosisName,
+      'diagnosis_chichewa': diagnosis.diagnosisNameChichewa,
+      'diagnosis_type': diagnosis.type.name,
+      'severity': diagnosis.severity.name,
+      'confidence': diagnosis.confidence,
+      'district': district,
+      // Coarse-grained coordinates (~11km precision) to prevent
+      // pinpointing individual farms
+      'latitude_approx': sanitizeCoordinate(
+        location?.latitude ?? diagnosis.latitude,
+      ),
+      'longitude_approx': sanitizeCoordinate(
+        location?.longitude ?? diagnosis.longitude,
+      ),
+      'created_at': FieldValue.serverTimestamp(),
+      'isPublic': isPublic,
+      // NOTE: NO name, NO phone, NO farmer_id, NO photo, NO exact location
+    };
+
+    // Write both docs in a batch (atomic — both succeed or neither)
+    final batch = db.batch();
+    batch.set(reportsDoc, reportData);
+    if (isPublic) {
+      batch.set(diseaseWatchDoc, diseaseWatchData);
+    }
+    await batch.commit();
+
+    // Notify managers/officers (the notification doesn't include encrypted PII)
     await _notifyReportTargets(
       diagnosis,
       farmer.fullName,
       nearestOfficer,
-      farmerRegion,
+      district ?? 'Unknown',
     );
+
     return DiagnosisReport(
-      id: doc.id,
-      farmerId: farmer.id,
+      id: reportsDoc.id,
+      farmerId: anonId,
       farmerName: farmer.fullName,
       farmerPhone: farmer.phoneNumber,
       cropType: crop,
@@ -148,7 +200,7 @@ class ReportService {
       latitude: location?.latitude ?? diagnosis.latitude,
       longitude: location?.longitude ?? diagnosis.longitude,
       placeName: location?.placeName ?? diagnosis.locationName,
-      district: farmerRegion,
+      district: district,
       imagePath: diagnosis.imagePath,
       photoBase64: photoBase64,
       photoUrl: null,
@@ -179,31 +231,28 @@ class ReportService {
     });
   }
 
-  /// Update the is_public flag for a report.
-  /// When set to false, the report will NOT appear in Disease Watch
-  /// but will still be visible to the Agriculture Manager.
   Future<void> updateReportPublicStatus({
     required String reportId,
     required bool isPublic,
   }) async {
     final db = _db;
     if (db == null) return;
-    await db.collection('reports').doc(reportId).update({
+    final batch = db.batch();
+    batch.update(db.collection('reports').doc(reportId), {
       'isPublic': isPublic,
       'updatedAt': DateTime.now().toIso8601String(),
     });
+    // Mirror change to disease_watch — delete or restore
+    if (!isPublic) {
+      batch.delete(db.collection('disease_watch').doc(reportId));
+    }
+    await batch.commit();
   }
 
-  /// Get the category for a diagnosis name (with caching).
-  /// Queries the diagnosis_categories Firestore collection.
-  /// Falls back to 'disease' if not found.
   Future<String> getDiagnosisCategory(String diagnosisName) async {
     final cache = DiagnosisCategoryCache();
-
     final cached = cache.get(diagnosisName);
-    if (cached != null) {
-      return cached;
-    }
+    if (cached != null) return cached;
 
     final db = _db;
     if (db == null) return 'disease';
@@ -213,7 +262,6 @@ class ReportService {
           .collection('diagnosis_categories')
           .doc(diagnosisName)
           .get();
-
       final category = doc.data()?['category'] as String? ?? 'disease';
       cache.set(diagnosisName, category);
       return category;
@@ -241,14 +289,13 @@ class ReportService {
     if (officerToken != null && officerToken.trim().isNotEmpty) {
       tokens.add(officerToken);
     }
-
     if (tokens.isEmpty) return;
 
     await _fcmNotificationService.sendToTokens(
       tokens: tokens.toList(),
       title: 'New Crop Report',
       body:
-          '$farmerName: ${diagnosis.diagnosisName} (${(diagnosis.confidence * 100).toStringAsFixed(0)}%)',
+          'New ${diagnosis.diagnosisName} report (${(diagnosis.confidence * 100).toStringAsFixed(0)}%) in $farmerRegion',
       data: {
         'diagnosisName': diagnosis.diagnosisName,
         'confidence': diagnosis.confidence,
