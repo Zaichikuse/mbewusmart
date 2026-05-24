@@ -75,6 +75,12 @@ class SettingsPage extends StatelessWidget {
                   title: isChichewa ? 'Thandizo' : 'Help & Support',
                   onTap: () => _openHelpSupport(context, isChichewa),
                 ),
+                const Divider(height: 1),
+                _buildTile(
+                  icon: Icons.privacy_tip_outlined,
+                  title: isChichewa ? 'Chinsinsi Chathu' : 'Privacy Policy',
+                  onTap: () => _openPrivacyPolicy(),
+                ),
               ]),
 
               const SizedBox(height: 24),
@@ -426,6 +432,18 @@ class SettingsPage extends StatelessWidget {
   }
 
   // ============================================
+  // PRIVACY POLICY — Opens in external browser
+  // ============================================
+  Future<void> _openPrivacyPolicy() async {
+    final uri = Uri.parse(
+      'https://zaichikuse.github.io/mbewusmart/PRIVACY_POLICY',
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  // ============================================
   // HELP & SUPPORT — Now opens a real page
   // ============================================
   void _openHelpSupport(BuildContext context, bool isChichewa) {
@@ -548,9 +566,36 @@ class SettingsPage extends StatelessWidget {
                     : 'MbewuSmart is an app that helps Malawian farmers identify crop diseases, pests, and nutrient deficiencies using AI.',
               ),
               const SizedBox(height: 16),
-              const Text('Version 1.0.0'),
-              const SizedBox(height: 8),
-              Text('© 2026 MbewuSmart', style: AppTextStyles.caption),
+              _aboutRow(
+                isChichewa ? 'Mtundu' : 'Version',
+                '1.0.0',
+              ),
+              _aboutRow(
+                isChichewa ? 'Kusinthidwa' : 'Build',
+                '1',
+              ),
+              _aboutRow(
+                isChichewa ? 'Wopanga' : 'Developer',
+                'Zai Chikuse',
+              ),
+              _aboutRow(
+                isChichewa ? 'Chaka' : 'Year',
+                '2026',
+              ),
+              _aboutRow(
+                isChichewa ? 'Teknoloji' : 'Tech',
+                'Flutter • Firestore • Gemini AI',
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isChichewa
+                    ? 'Yapangidwa ndi chikondi kwa alimi a ku Malawi'
+                    : 'Built with care for Malawian farmers',
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppTheme.primaryGreen,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
             ],
           ),
           actions: [
@@ -561,6 +606,24 @@ class SettingsPage extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+
+  Widget _aboutRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              label,
+              style: AppTextStyles.bodySmall.copyWith(color: AppTheme.textMuted),
+            ),
+          ),
+          Expanded(child: Text(value, style: AppTextStyles.bodySmall)),
+        ],
+      ),
     );
   }
 }

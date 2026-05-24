@@ -56,13 +56,22 @@ class ReportService {
     if (db == null) return Stream.value(const []);
     return db
         .collection('reports')
-        .orderBy('created_at', descending: true)
         .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => DiagnosisReport.fromMap(doc.data()))
-              .toList(),
-        );
+        .handleError((e) {
+          debugPrint('[ReportService] watchAllReports error: $e');
+        })
+        .map((snapshot) {
+          final reports = <DiagnosisReport>[];
+          for (final doc in snapshot.docs) {
+            try {
+              reports.add(DiagnosisReport.fromMap(doc.data()));
+            } catch (e) {
+              debugPrint('[ReportService] Error parsing report ${doc.id}: $e');
+            }
+          }
+          reports.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+          return reports;
+        });
   }
 
   Future<DiagnosisReport> createReport({

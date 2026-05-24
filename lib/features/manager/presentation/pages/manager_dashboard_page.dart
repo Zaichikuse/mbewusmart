@@ -372,10 +372,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           );
         }
 
-        // Group reports by district
+        // Group reports by district, falling back to placeName for legacy docs
         final districtCounts = <String, int>{};
         for (final r in reports) {
-          final district = (r.district ?? '').trim();
+          final district = (r.district ?? r.placeName ?? '').trim();
           if (district.isEmpty || district.toLowerCase() == 'unknown') continue;
           districtCounts[district] = (districtCounts[district] ?? 0) + 1;
         }

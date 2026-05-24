@@ -30,6 +30,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  bool _bannerDismissed = false;
+
   @override
   void initState() {
     super.initState();
@@ -62,7 +64,11 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: BlocListener<DiagnosisBloc, DiagnosisState>(
+      body: Column(
+        children: [
+          if (!_bannerDismissed) _buildBetaBanner(isChichewa),
+          Expanded(
+            child: BlocListener<DiagnosisBloc, DiagnosisState>(
         listenWhen: (previous, current) => current is DiagnosisSuccess,
         listener: (context, state) {
           if (state is DiagnosisSuccess) {
@@ -89,6 +95,37 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ),
+      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBetaBanner(bool isChichewa) {
+    return Container(
+      color: Colors.amber.shade100,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: Colors.amber.shade800, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isChichewa
+                  ? 'Mtundu woyesa — perekani malingaliro ku zaichikuse@gmail.com'
+                  : 'Beta release — feedback welcome at zaichikuse@gmail.com',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.amber.shade900,
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () => setState(() => _bannerDismissed = true),
+            child: Icon(Icons.close, size: 16, color: Colors.amber.shade800),
+          ),
+        ],
       ),
     );
   }

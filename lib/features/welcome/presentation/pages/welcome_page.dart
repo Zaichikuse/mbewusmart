@@ -77,17 +77,11 @@ class _WelcomePageState extends State<WelcomePage> {
           child: Column(
             children: [
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.all(32),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryGreen.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.eco,
-                  size: 80,
-                  color: AppTheme.primaryGreen,
-                ),
+              Image.asset(
+                'assets/icons/mbewusmart_logo_foreground.png',
+                width: 120,
+                height: 120,
+                fit: BoxFit.contain,
               ),
               const SizedBox(height: 32),
               Text(

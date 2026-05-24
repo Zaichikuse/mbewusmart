@@ -47,9 +47,10 @@ class _LoginPageState extends State<LoginPage> {
               children: [
                 const SizedBox(height: 40),
                 Image.asset(
-                  'assets/icons/mbewusmart_logo.png',
+                  'assets/icons/mbewusmart_logo_foreground.png',
                   width: 100,
                   height: 100,
+                  fit: BoxFit.contain,
                 ),
                 const SizedBox(height: 16),
                 Text(
