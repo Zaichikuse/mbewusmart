@@ -3,6 +3,19 @@
 All notable changes to MbewuSmart are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+---
+
+## [1.0.1] — 2026-05-24
+
+### Fixed
+- Privacy Policy link in Settings now opens correctly on Android 11+ (added required `<queries>` block to AndroidManifest.xml)
+- Change PIN verification now correctly accepts the current PIN (removed incorrect client-side bcrypt-hash vs plaintext comparison in settings_page.dart — the bloc's `verifyPin()` with `BCrypt.checkpw` is the correct verification path)
+
+### Added
+- Comprehensive `debugPrint` logging in authentication flow (`AuthLocalDataSource.login`, `AuthLocalDataSource.verifyPin`, `AuthBloc._onChangePinRequested`, `SettingsPage` Change PIN dispatch) for diagnostics
+
+---
 Versions follow [Semantic Versioning](https://semver.org/).
 
 ---

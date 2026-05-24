@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:bcrypt/bcrypt.dart';
 import 'package:encrypt/encrypt.dart' as enc;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive/hive.dart';
 
@@ -136,7 +137,9 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
   @override
   Future<User> login(String phoneNumber, String? pin) async {
     try {
+      debugPrint('[AuthDS.login] phone="$phoneNumber" pin="${pin ?? "null"}"');
       final users = userBox.values.toList();
+      debugPrint('[AuthDS.login] userBox has ${users.length} entries');
 
       Map<String, dynamic>? userData;
       for (final u in users) {
@@ -147,16 +150,20 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
       }
 
       if (userData == null) {
+        debugPrint('[AuthDS.login] ERROR: no user found for "$phoneNumber"');
         throw const AuthException('User not found');
       }
+      debugPrint('[AuthDS.login] user found: id=${userData['id']}');
 
       // PIN verification using bcrypt
       final storedHash = userData['pin'] as String?;
+      debugPrint('[AuthDS.login] storedHash prefix="${storedHash?.substring(0, 7) ?? "null"}"');
       if (storedHash != null && storedHash.isNotEmpty) {
         if (pin == null || pin.isEmpty) {
           throw const AuthException('PIN required');
         }
         final ok = _verifyPinSync(pin, storedHash);
+        debugPrint('[AuthDS.login] bcrypt.checkpw result: $ok');
         if (!ok) {
           throw const AuthException('Invalid PIN');
         }
@@ -164,6 +171,7 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
 
       final user = _userFromMap(userData);
       await saveUser(user.copyWith(lastLoginAt: DateTime.now()));
+      debugPrint('[AuthDS.login] login SUCCESS for "${user.fullName}"');
       return user;
     } catch (e) {
       if (e is AuthException) rethrow;
@@ -259,7 +267,10 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
     required String pin,
   }) async {
     try {
+      debugPrint('[AuthDS.verifyPin] phone="$phoneNumber" pin="$pin"');
       final users = userBox.values.toList();
+      debugPrint('[AuthDS.verifyPin] userBox has ${users.length} entries');
+
       Map<String, dynamic>? userData;
       for (final u in users) {
         if (u is Map && u['phoneNumber'] == phoneNumber) {
@@ -267,13 +278,25 @@ class AuthLocalDataSourceImpl implements AuthLocalDataSource {
           break;
         }
       }
-      if (userData == null) return false;
+
+      if (userData == null) {
+        debugPrint('[AuthDS.verifyPin] ERROR: no user found for "$phoneNumber"');
+        return false;
+      }
+      debugPrint('[AuthDS.verifyPin] user found: id=${userData['id']}');
 
       final storedHash = userData['pin'] as String?;
-      if (storedHash == null || storedHash.isEmpty) return false;
+      debugPrint('[AuthDS.verifyPin] storedHash prefix="${storedHash?.substring(0, 7) ?? "null"}"');
+      if (storedHash == null || storedHash.isEmpty) {
+        debugPrint('[AuthDS.verifyPin] ERROR: no stored hash');
+        return false;
+      }
 
-      return _verifyPinSync(pin, storedHash);
-    } catch (_) {
+      final result = _verifyPinSync(pin, storedHash);
+      debugPrint('[AuthDS.verifyPin] bcrypt.checkpw result: $result');
+      return result;
+    } catch (e) {
+      debugPrint('[AuthDS.verifyPin] EXCEPTION: $e');
       return false;
     }
   }

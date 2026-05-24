@@ -148,7 +148,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     final currentUser = state.user;
+    debugPrint('[AuthBloc._onChangePinRequested] user=${currentUser?.fullName} phone="${currentUser?.phoneNumber}"');
+    debugPrint('[AuthBloc._onChangePinRequested] currentPin="${event.currentPin}" newPin="${event.newPin}"');
+
     if (currentUser == null) {
+      debugPrint('[AuthBloc._onChangePinRequested] ERROR: no current user in state');
       emit(
         state.copyWith(status: AuthStatus.error, errorMessage: 'Not logged in'),
       );
@@ -156,12 +160,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
 
     try {
+      debugPrint('[AuthBloc._onChangePinRequested] calling verifyPin...');
       final isCurrentPinValid = await localDataSource.verifyPin(
         phoneNumber: currentUser.phoneNumber,
         pin: event.currentPin,
       );
+      debugPrint('[AuthBloc._onChangePinRequested] verifyPin returned: $isCurrentPinValid');
 
       if (!isCurrentPinValid) {
+        debugPrint('[AuthBloc._onChangePinRequested] PIN verification FAILED — emitting error');
         emit(
           state.copyWith(
             status: AuthStatus.error,
@@ -178,10 +185,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
 
+      debugPrint('[AuthBloc._onChangePinRequested] PIN verified — changing pin');
       final updatedUser = await localDataSource.changePin(
         userId: currentUser.id,
         newPin: event.newPin,
       );
+      debugPrint('[AuthBloc._onChangePinRequested] PIN changed successfully');
 
       emit(
         state.copyWith(
@@ -193,6 +202,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       unawaited(_syncUser(updatedUser, 'pin change'));
     } catch (e) {
+      debugPrint('[AuthBloc._onChangePinRequested] EXCEPTION: $e');
       emit(
         state.copyWith(
           status: AuthStatus.error,

@@ -309,20 +309,14 @@ class SettingsPage extends StatelessWidget {
                 final currentUser = authBloc.state.user;
                 if (currentUser == null) return;
 
-                // Verify the current PIN before dispatching
-                if (currentUser.pin != currentPinController.text) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        isChichewa
-                            ? 'PIN yakale silolondola'
-                            : 'Current PIN is incorrect',
-                      ),
-                      backgroundColor: AppTheme.errorRed,
-                    ),
-                  );
-                  return;
-                }
+                // NOTE: Do NOT compare currentUser.pin to the plaintext input here.
+                // currentUser.pin is a bcrypt hash — plaintext will never equal it.
+                // The bloc's _onChangePinRequested calls verifyPin() with bcrypt.checkpw.
+                debugPrint(
+                  '[ChangePIN] Dispatching with phone="${currentUser.phoneNumber}" '
+                  'currentPin="${currentPinController.text}" '
+                  'storedHashPrefix="${currentUser.pin?.substring(0, 7) ?? "null"}"',
+                );
 
                 Navigator.pop(dialogContext);
 
