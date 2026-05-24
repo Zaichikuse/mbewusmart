@@ -438,8 +438,20 @@ class SettingsPage extends StatelessWidget {
     final uri = Uri.parse(
       'https://zaichikuse.github.io/mbewusmart/PRIVACY_POLICY',
     );
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    debugPrint('[PrivacyPolicy] Attempting to launch: $uri');
+    try {
+      final canLaunch = await canLaunchUrl(uri);
+      debugPrint('[PrivacyPolicy] canLaunchUrl returned: $canLaunch');
+      if (canLaunch) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        debugPrint('[PrivacyPolicy] launchUrl called successfully');
+      } else {
+        // Fallback: try without the canLaunchUrl gate (handles missing <queries> on older builds)
+        debugPrint('[PrivacyPolicy] canLaunchUrl=false, trying launchUrl directly');
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint('[PrivacyPolicy] ERROR launching URL: $e');
     }
   }
 
