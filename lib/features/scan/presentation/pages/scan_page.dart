@@ -25,6 +25,7 @@ import '../../../alerts/domain/entities/alert.dart';
 import '../../../history/presentation/widgets/ai_assistant_tab.dart';
 import '../../../history/presentation/pages/history_page.dart';
 import '../widgets/crop_selector.dart';
+import '../../../../services/location_service.dart';
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -38,6 +39,7 @@ class _ScanPageState extends State<ScanPage> {
   CropType _selectedCrop = CropType.maize;
   static const double confidenceThreshold = 0.70;
   late final ReportService _reportService = di.sl<ReportService>();
+  final LocationService _locationService = LocationService();
   bool _isPublic = true; // Privacy: opt-out toggle for Disease Watch
   bool _hasSavedReport = false; // Prevents duplicate saves per scan
 
@@ -53,6 +55,7 @@ class _ScanPageState extends State<ScanPage> {
     try {
       final authState = context.read<AuthBloc>().state;
       final locationState = context.read<LocationBloc>().state;
+      final preciseLocation = await _locationService.getCurrentLocation();
 
       if (authState.user == null) {
         debugPrint('[ScanPage] Cannot save report — user not authenticated');
@@ -65,6 +68,7 @@ class _ScanPageState extends State<ScanPage> {
         location: locationState is LocationLoaded
             ? locationState.location
             : null,
+        preciseLocation: preciseLocation,
         nearestOfficer: locationState is LocationLoaded
             ? locationState.nearestOfficer
             : null,

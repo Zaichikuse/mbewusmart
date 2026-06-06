@@ -11,10 +11,12 @@ class DiagnosisReport extends Equatable {
   final String cropType;
   final String diagnosisName;
   final double confidence;
+  final String? region;
+  final String? district;
+  final String? locality;
   final double? latitude;
   final double? longitude;
   final String? placeName;
-  final String? district;
   final String imagePath;
   final String? photoBase64;
   final String? photoUrl;
@@ -34,10 +36,12 @@ class DiagnosisReport extends Equatable {
     required this.cropType,
     required this.diagnosisName,
     required this.confidence,
+    this.region,
+    this.district,
+    this.locality,
     required this.latitude,
     required this.longitude,
     required this.placeName,
-    required this.district,
     required this.imagePath,
     this.photoBase64,
     this.photoUrl,
@@ -59,10 +63,12 @@ class DiagnosisReport extends Equatable {
       'cropType': cropType,
       'diagnosisName': diagnosisName,
       'confidence': confidence,
+      'region': region,
+      'district': district,
+      'locality': locality,
       'latitude': latitude,
       'longitude': longitude,
-      'placeName': placeName,
-      'district': district,
+      'placeName': placeName ?? locality,
       'imagePath': imagePath,
       'photo_base64': photoBase64,
       'photo_url': photoUrl,
@@ -122,10 +128,12 @@ class DiagnosisReport extends Equatable {
       cropType: cropType,
       diagnosisName: diagnosisName,
       confidence: (map['confidence'] ?? 0.0).toDouble(),
+      region: map['region']?.toString(),
+      district: map['district']?.toString(),
+      locality: map['locality']?.toString() ?? map['placeName']?.toString(),
       latitude: (map['latitude'] as num?)?.toDouble(),
       longitude: (map['longitude'] as num?)?.toDouble(),
-      placeName: map['placeName'] ?? map['region'],
-      district: map['district'] ?? map['region'],
+      placeName: map['placeName']?.toString() ?? map['locality']?.toString(),
       imagePath: imagePath,
       photoBase64: map['photo_base64'] ?? map['photoBase64'],
       photoUrl:
@@ -158,10 +166,12 @@ class DiagnosisReport extends Equatable {
     cropType,
     diagnosisName,
     confidence,
+    region,
+    district,
+    locality,
     latitude,
     longitude,
     placeName,
-    district,
     imagePath,
     photoBase64,
     photoUrl,

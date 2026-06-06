@@ -15,6 +15,8 @@ import '../../../diagnosis/domain/entities/diagnosis_result.dart';
 import '../../../location/domain/entities/extension_officer.dart';
 import '../../../location/domain/entities/location_info.dart';
 import '../../domain/entities/diagnosis_report.dart';
+import '../../../../models/comment.dart';
+import '../../../../services/location_service.dart';
 
 class ReportService {
   ReportService({
@@ -64,7 +66,9 @@ class ReportService {
           final reports = <DiagnosisReport>[];
           for (final doc in snapshot.docs) {
             try {
-              reports.add(DiagnosisReport.fromMap(doc.data()));
+              reports.add(
+                DiagnosisReport.fromMap({...doc.data(), 'id': doc.id}),
+              );
             } catch (e) {
               debugPrint('[ReportService] Error parsing report ${doc.id}: $e');
             }
@@ -78,6 +82,7 @@ class ReportService {
     required DiagnosisResult diagnosis,
     required User farmer,
     required LocationInfo? location,
+    LocationData? preciseLocation,
     ExtensionOfficer? nearestOfficer,
     bool isPublic = true,
   }) async {
@@ -106,9 +111,19 @@ class ReportService {
     }
 
     final crop = diagnosis.cropType.name.toLowerCase();
-    final district = AnonymousIdService.sanitizeDistrict(
-      location?.district ?? farmer.district,
-    );
+    final region = preciseLocation?.region ?? location?.region;
+    final district =
+        preciseLocation?.district ?? location?.district ?? farmer.district;
+    final locality =
+        preciseLocation?.locality ??
+        location?.placeName ??
+        diagnosis.locationName;
+    final latitude =
+        preciseLocation?.latitude ?? location?.latitude ?? diagnosis.latitude;
+    final longitude =
+        preciseLocation?.longitude ??
+        location?.longitude ??
+        diagnosis.longitude;
     final treatmentText = diagnosis.treatment ?? diagnosis.recommendation ?? '';
     final preventionText = diagnosis.prevention ?? '';
 
@@ -135,8 +150,9 @@ class ReportService {
       'treatment': treatmentText,
       'prevention': preventionText,
       'photo_base64': photoBase64,
-      'region': district ?? 'Unknown',
+      'region': region ?? 'Unknown',
       'district': district,
+      'locality': locality,
       // 🔐 Anonymous ID instead of farmer.id
       'farmer_id': anonId,
       // 🔐 Name + phone are AES-256 encrypted
@@ -144,9 +160,9 @@ class ReportService {
       'farmer_phone_encrypted': encryptedPhone,
       'created_at': FieldValue.serverTimestamp(),
       'extensionOfficerId': nearestOfficer?.id,
-      'latitude': location?.latitude ?? diagnosis.latitude,
-      'longitude': location?.longitude ?? diagnosis.longitude,
-      'placeName': location?.placeName ?? diagnosis.locationName,
+      'latitude': latitude,
+      'longitude': longitude,
+      'placeName': locality,
       'notes': [
         if (treatmentText.trim().isNotEmpty)
           'Treatment: ${treatmentText.trim()}',
@@ -168,15 +184,13 @@ class ReportService {
       'diagnosis_type': diagnosis.type.name,
       'severity': diagnosis.severity.name,
       'confidence': diagnosis.confidence,
+      'region': region,
       'district': district,
+      'locality': locality,
       // Coarse-grained coordinates (~11km precision) to prevent
       // pinpointing individual farms
-      'latitude_approx': sanitizeCoordinate(
-        location?.latitude ?? diagnosis.latitude,
-      ),
-      'longitude_approx': sanitizeCoordinate(
-        location?.longitude ?? diagnosis.longitude,
-      ),
+      'latitude_approx': sanitizeCoordinate(latitude),
+      'longitude_approx': sanitizeCoordinate(longitude),
       'created_at': FieldValue.serverTimestamp(),
       'isPublic': isPublic,
       // NOTE: NO name, NO phone, NO farmer_id, NO photo, NO exact location
@@ -206,10 +220,12 @@ class ReportService {
       cropType: crop,
       diagnosisName: diagnosis.diagnosisName,
       confidence: diagnosis.confidence,
-      latitude: location?.latitude ?? diagnosis.latitude,
-      longitude: location?.longitude ?? diagnosis.longitude,
-      placeName: location?.placeName ?? diagnosis.locationName,
+      region: region,
       district: district,
+      locality: locality,
+      latitude: latitude,
+      longitude: longitude,
+      placeName: locality,
       imagePath: diagnosis.imagePath,
       photoBase64: photoBase64,
       photoUrl: null,
@@ -221,6 +237,77 @@ class ReportService {
       notes: reportData['notes'] as String,
       isPublic: isPublic,
     );
+  }
+
+  Stream<DiagnosisReport?> watchReportById(String reportId) {
+    assert(reportId.isNotEmpty, 'watchReportById called with empty reportId');
+    if (reportId.isEmpty) return Stream.value(null);
+    final db = _db;
+    if (db == null) return Stream.value(null);
+    return db.collection('reports').doc(reportId).snapshots().map((doc) {
+      final data = doc.data();
+      if (data == null) return null;
+      return DiagnosisReport.fromMap({...data, 'id': doc.id});
+    });
+  }
+
+  Stream<List<Comment>> getComments(String reportId) {
+    final db = _db;
+    if (db == null) return Stream.value(const []);
+    return db
+        .collection('reports')
+        .doc(reportId)
+        .collection('comments')
+        .orderBy('timestamp', descending: false)
+        .snapshots()
+        .map(
+          (snapshot) =>
+              snapshot.docs.map((doc) => Comment.fromMap(doc.data())).toList(),
+        );
+  }
+
+  Future<void> addComment(String reportId, Comment comment) async {
+    final db = _db;
+    if (db == null) return;
+    final doc = db
+        .collection('reports')
+        .doc(reportId)
+        .collection('comments')
+        .doc();
+    await doc.set({
+      ...comment.toMap(),
+      'commentId': doc.id,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> toggleLike(
+    String reportId,
+    String commentId,
+    String userId,
+  ) async {
+    final db = _db;
+    if (db == null) return;
+    final ref = db
+        .collection('reports')
+        .doc(reportId)
+        .collection('comments')
+        .doc(commentId);
+    await db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final likes = List<String>.from(
+        snapshot.data()?['likes'] ?? const <String>[],
+      );
+      if (likes.contains(userId)) {
+        transaction.update(ref, {
+          'likes': FieldValue.arrayRemove([userId]),
+        });
+      } else {
+        transaction.update(ref, {
+          'likes': FieldValue.arrayUnion([userId]),
+        });
+      }
+    });
   }
 
   Future<Uint8List> _readScanImageBytes(String localPath) async {

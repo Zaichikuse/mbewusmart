@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../../core/di/injection_container.dart' as di;
 import '../../../../core/theme/app_theme.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
+import '../../../analytics/screens/interactive_map_screen.dart';
 import '../../../reports/data/services/report_service.dart';
 import '../../../reports/domain/entities/diagnosis_report.dart';
 
@@ -374,110 +375,161 @@ class _ManagerAnalyticsPageState extends State<ManagerAnalyticsPage> {
   }
 
   Widget _buildMap(List<DiagnosisReport> reports, bool isChichewa) {
-    final clusterCounts = <String, int>{};
-    for (final r in reports) {
-      final district = (r.district ?? '').trim();
-      if (district.isEmpty) continue;
-      final key = '$district|${r.diagnosisName}';
-      clusterCounts[key] = (clusterCounts[key] ?? 0) + 1;
-    }
+    final locatedReports = reports.where((r) {
+      final lat = r.latitude;
+      final lng = r.longitude;
+      return lat != null &&
+          lng != null &&
+          !(lat == 0 && lng == 0);
+    }).length;
 
-    final markers = <Marker>[];
+    final previewMarkers = <Marker>[];
     for (final r in reports) {
       final lat = r.latitude;
       final lng = r.longitude;
       if (lat == null || lng == null) continue;
       if (lat == 0 && lng == 0) continue;
-      final district = (r.district ?? '').trim();
-      final key = '$district|${r.diagnosisName}';
-      final clusterSize = clusterCounts[key] ?? 1;
 
-      final color = _markerColor(clusterSize);
+      final severity = r.confidence >= 0.85
+          ? 'high'
+          : r.confidence >= 0.70
+          ? 'medium'
+          : 'low';
+      final color = severity == 'high'
+          ? const Color(0xFFC62828)
+          : severity == 'medium'
+          ? const Color(0xFFE65100)
+          : const Color(0xFF2E7D32);
 
-      markers.add(
+      previewMarkers.add(
         Marker(
           point: LatLng(lat, lng),
-          width: 24,
-          height: 24,
+          width: 14,
+          height: 14,
           child: Container(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: color,
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 4,
-                ),
-              ],
+              border: Border.all(color: Colors.white, width: 1.5),
             ),
           ),
         ),
       );
     }
 
-    return Container(
-      height: 320,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Stack(
-          children: [
-            FlutterMap(
-              options: const MapOptions(
-                initialCenter: LatLng(-13.5, 34.0),
-                initialZoom: 6.0,
-                minZoom: 5.0,
-                maxZoom: 12.0,
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate:
-                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.mbewusmart.mbewu_smart',
-                ),
-                MarkerLayer(markers: markers),
-              ],
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const InteractiveMapScreen()),
+        );
+      },
+      child: Container(
+        height: 320,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
-            if (markers.isEmpty)
-              Center(
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            children: [
+              FlutterMap(
+                options: const MapOptions(
+                  initialCenter: LatLng(-13.2543, 34.3015),
+                  initialZoom: 6.5,
+                  minZoom: 5.0,
+                  maxZoom: 6.5,
+                  interactionOptions: InteractionOptions(
+                    flags: InteractiveFlag.none,
+                  ),
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.mbewusmart.mbewu_smart',
+                  ),
+                  MarkerLayer(markers: previewMarkers),
+                ],
+              ),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.35),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 12,
+                bottom: 12,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
+                    horizontal: 12,
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.white.withValues(alpha: 0.95),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     isChichewa
-                        ? 'Palibe lipoti ndi malo'
-                        : 'No reports with location data yet',
-                    style: AppTextStyles.bodySmall,
+                        ? '📍 $locatedReports malipoti — Dinani kuti muone mapu wonse'
+                        : '📍 $locatedReports cases — Tap to open interactive map',
+                    style: AppTextStyles.bodySmall.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
-          ],
+              const Positioned(
+                right: 12,
+                top: 12,
+                child: CircleAvatar(
+                  backgroundColor: Colors.white,
+                  child: Icon(
+                    Icons.open_in_full,
+                    color: AppTheme.primaryGreen,
+                    size: 20,
+                  ),
+                ),
+              ),
+              if (previewMarkers.isEmpty)
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      isChichewa
+                          ? 'Palibe lipoti ndi malo'
+                          : 'No reports with location data yet',
+                      style: AppTextStyles.bodySmall,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
-  }
-
-  Color _markerColor(int clusterSize) {
-    if (clusterSize >= 5) return AppTheme.diseaseRed;
-    if (clusterSize >= 3) return AppTheme.warningAmber;
-    if (clusterSize >= 2) return AppTheme.accentOrange;
-    return AppTheme.healthyGreen;
   }
 
   Widget _buildMapLegend(bool isChichewa) {
@@ -486,20 +538,16 @@ class _ManagerAnalyticsPageState extends State<ManagerAnalyticsPage> {
       runSpacing: 6,
       children: [
         _legendDot(
-          AppTheme.healthyGreen,
-          isChichewa ? '1 lipoti' : '1 report',
+          const Color(0xFF2E7D32),
+          isChichewa ? 'Zochepa' : 'Low',
         ),
         _legendDot(
-          AppTheme.accentOrange,
-          isChichewa ? '2 malipoti' : '2 reports',
+          const Color(0xFFE65100),
+          isChichewa ? 'Wapakatikati' : 'Medium',
         ),
         _legendDot(
-          AppTheme.warningAmber,
-          isChichewa ? '3-4 malipoti' : '3-4 reports',
-        ),
-        _legendDot(
-          AppTheme.diseaseRed,
-          isChichewa ? '5+ (Owopsa)' : '5+ (Outbreak)',
+          const Color(0xFFC62828),
+          isChichewa ? 'Waukulu' : 'High',
         ),
       ],
     );

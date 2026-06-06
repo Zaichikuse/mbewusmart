@@ -1,1 +1,24 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"mbewusmart","appId":"1:449707855092:android:344e4e77c800f3f74da2a1","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"mbewusmart","configurations":{"android":"1:449707855092:android:344e4e77c800f3f74da2a1"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "mbewusmart",
+          "appId": "1:449707855092:android:344e4e77c800f3f74da2a1",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "mbewusmart",
+          "configurations": {
+            "android": "1:449707855092:android:344e4e77c800f3f74da2a1"
+          }
+        }
+      }
+    }
+  }
+}

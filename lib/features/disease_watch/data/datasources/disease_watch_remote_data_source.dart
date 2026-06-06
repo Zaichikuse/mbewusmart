@@ -71,12 +71,11 @@ class DiseaseWatchRemoteDataSource {
       final snapshot = await query.get();
 
       // Fetch documents
-      final reports = snapshot.docs
-          .map(
-            (doc) =>
-                DiagnosisReport.fromMap(doc.data() as Map<String, dynamic>),
-          )
-          .toList();
+      final reports = snapshot.docs.map((doc) {
+        final data = Map<String, dynamic>.from(doc.data() as Map);
+        data['id'] = doc.id;
+        return DiagnosisReport.fromMap(data);
+      }).toList();
 
       final pageReports = reports.take(limit).toList();
 

@@ -20,6 +20,28 @@ service cloud.firestore {
 
       // Hard delete is never allowed — use isPublic=false to suppress from feeds.
       allow delete: if false;
+
+      // Comments sub-collection: reports/{reportId}/comments/{commentId}
+      // App uses local Hive auth (not Firebase Auth), so rules validate
+      // comment shape instead of request.auth.uid.
+      match /comments/{commentId} {
+        allow read: if true;
+
+        allow create: if request.resource.data.keys().hasAll([
+                          'authorId', 'authorName', 'text', 'timestamp'
+                        ])
+                     && request.resource.data.authorId is string
+                     && request.resource.data.authorId.size() > 0
+                     && request.resource.data.text is string
+                     && request.resource.data.text.size() > 0
+                     && request.resource.data.text.size() <= 2000;
+
+        allow update: if request.resource.data.diff(resource.data)
+                          .affectedKeys()
+                          .hasOnly(['likes']);
+
+        allow delete: if false;
+      }
     }
 
     // ---------- disease_watch (public aggregated feed, zero PII) ----------

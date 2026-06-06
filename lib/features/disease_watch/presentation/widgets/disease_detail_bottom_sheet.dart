@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+
 import '../../../../core/theme/app_theme.dart';
-import '../../domain/entities/disease_trend_card.dart';
-import '../../../../shared/widgets/scan_photo.dart';
+import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/utils/time_ago.dart';
+import '../../../../shared/widgets/scan_photo.dart';
+import '../../domain/entities/disease_trend_card.dart';
 import '../../../diagnosis/domain/entities/diagnosis_category.dart';
 import '../../../diagnosis/domain/entities/diagnosis_result.dart';
+import '../../screens/report_detail_screen.dart';
 
 class DiseaseDetailBottomSheet extends StatelessWidget {
   final DiseaseTrendCard trend;
@@ -46,6 +49,7 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final appLoc = AppLocalizations.of(context);
     final hasTreatment = (trend.treatmentSummary ?? '').trim().isNotEmpty;
     final hasPrevention = (trend.preventionSummary ?? '').trim().isNotEmpty;
 
@@ -69,7 +73,6 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Drag handle
                   Center(
                     child: Container(
                       width: 40,
@@ -81,8 +84,6 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-
-                  // Photo
                   if ((trend.photoBase64 ?? '').isNotEmpty ||
                       (trend.imageUrl ?? '').isNotEmpty)
                     ScanPhoto(
@@ -107,8 +108,6 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                       ),
                     ),
                   const SizedBox(height: 20),
-
-                  // Diagnosis name
                   Text(
                     trend.diagnosisName,
                     style: const TextStyle(
@@ -118,13 +117,10 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-
-                  // Category & Severity badges
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      // Category badge
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -143,7 +139,6 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                           ),
                         ),
                       ),
-                      // Severity badge
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -165,8 +160,6 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 20),
-
-                  // District
                   Row(
                     children: [
                       const Icon(
@@ -185,8 +178,6 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 20),
-
-                  // Report stats
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -240,11 +231,10 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
-
-                  // Treatment advice
-                  const Text(
-                    'Treatment & Prevention',
-                    style: TextStyle(
+                  Text(
+                    appLoc?.translate('treatmentAdvice') ??
+                        'Treatment & Prevention',
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: AppTheme.textDark,
@@ -253,8 +243,9 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                   const SizedBox(height: 10),
                   if (!hasTreatment && !hasPrevention)
                     Text(
-                      'No treatment information available yet.',
-                      style: TextStyle(
+                      appLoc?.translate('noTreatmentInfo') ??
+                          'No treatment information available yet.',
+                      style: const TextStyle(
                         fontSize: 14,
                         color: AppTheme.textMuted,
                         fontStyle: FontStyle.italic,
@@ -265,9 +256,9 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (hasTreatment) ...[
-                          const Text(
-                            'Treatment',
-                            style: TextStyle(
+                          Text(
+                            appLoc?.translate('treatment') ?? 'Treatment',
+                            style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
                               color: AppTheme.textDark,
@@ -285,9 +276,9 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                           if (hasPrevention) const SizedBox(height: 16),
                         ],
                         if (hasPrevention) ...[
-                          const Text(
-                            'Prevention',
-                            style: TextStyle(
+                          Text(
+                            appLoc?.translate('prevention') ?? 'Prevention',
+                            style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
                               color: AppTheme.textDark,
@@ -305,6 +296,31 @@ class DiseaseDetailBottomSheet extends StatelessWidget {
                         ],
                       ],
                     ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        if (trend.id.isEmpty) {
+                          debugPrint(
+                            'ERROR: reportId is empty, cannot open detail screen',
+                          );
+                          return;
+                        }
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ReportDetailScreen(reportId: trend.id),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.forum_outlined),
+                      label: Text(
+                        appLoc?.translate('viewDiscussion') ??
+                            'View discussion',
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 30),
                 ],
               ),

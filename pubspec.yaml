@@ -35,8 +35,8 @@ dependencies:
   flutter_image_compress: ^2.1.0
 
   # Location/GPS
-  geolocator: ^11.0.0
-  geocoding: ^2.1.0
+  geolocator: ^12.0.0
+  geocoding: ^3.0.0
   
   # Firebase (optional sync, alerts, cloud storage)
   firebase_core: ^2.24.0
