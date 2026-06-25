@@ -106,6 +106,22 @@ lib/
 │
 └── features/welcome/presentation/pages/welcome_page.dart ⭐ IMPROVED
     └── Cleaner integration with SettingsBloc
+
+### v1.1.0 Additions (localisation-aware)
+
+```
+lib/
+├── features/disease_watch/widgets/comments_section.dart ⭐ NEW
+│   └── Comment timestamps, placeholder text, empty state message
+│
+├── features/disease_watch/widgets/location_card.dart ⭐ NEW
+│   └── Three-tier location display (Region · District, Locality)
+│
+├── features/analytics/screens/interactive_map_screen.dart ⭐ NEW
+│   └── Map legend labels, case counter text, bottom card labels
+│
+└── services/location_service.dart ⭐ NEW
+    └── GPS reverse geocoding with graceful fallback
 ```
 
 ---
@@ -261,7 +277,7 @@ A: See "Troubleshooting" in `LOCALIZATION_QUICK_REFERENCE.md`
 ## ✨ STATUS
 
 - **Status:** ✅ Production Ready
-- **Last Updated:** 2026-05-06
+- **Last Updated:** 2026-06-23
 - **Tested:** ✅ All scenarios
 - **Documentation:** ✅ Comprehensive
 - **Code Quality:** ✅ Professional
