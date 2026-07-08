@@ -178,7 +178,8 @@ Security vulnerabilities should be reported privately to zaichikuse@gmail.com �
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Copyright © 2026 Zaithwa Chikuse. All rights reserved. 
+For licensing or partnership inquiries, contact zaichikuse@gmail.com.
 
 ---
 
